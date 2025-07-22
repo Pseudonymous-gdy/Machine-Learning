@@ -18,6 +18,8 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures, OrdinalEncoder
 # OrdinalEncoder is used for encoding categorical features
 
+missing_value_table = data.isnull().sum()
+missing_value_proportion = missing_value_table[missing_value_table>0].sort_values(ascending=False) / len(data)
 
 def fill_missing_values(data: pd.DataFrame, missing_col: str) -> pd.DataFrame:
     """
@@ -147,31 +149,51 @@ def remove_outliers(data):
     """
     crit = outlier_detection(data)
     for row in crit.index:
-        if crit.loc[row].sum() > 4:
+        if crit.loc[row].sum() > 5:
             data = data.drop(row)
     return data
 
 data_no_outliers = remove_outliers(data.copy())
-
-def encoding(data):
+data_no_outliers.reset_index(drop=True, inplace=True)
+print(data_no_outliers)
+def encoding(data, max_categories=50):
     '''
-    Encode categorical features using OneHotEncoder for multi-category variables,
-    and boolean indicator (1/0) for dichotomous variables.
+    Encode categorical features using:
+    - Binary indicator (1/0) for dichotomous variables
+    - One-hot encoding for variables with 3-10 categories
+    - Ordinal encoding for variables with more than 10 categories
+    
+    Parameters:
+    -----------
+    data : pd.DataFrame
+        Input DataFrame
+    max_categories : int
+        Maximum number of categories for one-hot encoding
     '''
     results = data.copy()
     cat_cols = results.select_dtypes(include=["object", "category"]).columns.tolist()
+    
     for col in cat_cols:
         n_unique = results[col].nunique(dropna=False)
+        
         if n_unique == 2:
             # Binary indicator: map the two categories to 1 and 0
             categories = results[col].dropna().unique()
             mapping = {categories[0]: 1, categories[1]: 0}
             results[f'binary_{col}'] = results[col].map(mapping)
             results = results.drop(col, axis=1)
-        elif n_unique > 2:
-            # One-hot encode multi-category columns
+            
+        elif 2 < n_unique <= max_categories:
+            # One-hot encode columns with moderate number of categories
             dummies = pd.get_dummies(results[col], prefix=col, drop_first=True, dtype=float)
             results = pd.concat([results.drop(col, axis=1), dummies], axis=1)
+            
+        else:
+            # Ordinal encode columns with too many categories
+            enc = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+            results[f'ordinal_{col}'] = enc.fit_transform(results[[col]])
+            results = results.drop(col, axis=1)
+    
     return results
 
 data_encoded = encoding(data_no_outliers)
