@@ -1,0 +1,49 @@
+name,role,type,demographic,description,units,missing_values
+id,ID,Integer,,,,no
+age,Feature,Continuous,Age,Age of the patients in years,years,no
+death,Target,Continuous,,Death at any time up to National Death Index (NDI) data on 31 of December of 1994. Some patients are discharged before the end of the study and are not followed up. The authors looked up the information about death.,,no
+sex,Feature,Categorical,Sex,"Gender of the patient. Listed values are {male, female}.",,no
+hospdead,Target,Binary,,Death in hospital,,no
+slos,Other,Continuous,,Days from Study Entry to Discharge,,no
+d.time,Other,Continuous,,Days of follow-up,,no
+dzgroup,Feature,Categorical,,"The patient's disease sub category amogst ARF/MOSF w/Sepsis, CHF, COPD, Cirrhosis, Colon Cancer, Coma, Lung Cancer, MOSF w/Malig.",,no
+dzclass,Feature,Categorical,,"The patient's disease category amongst ""ARF/MOSF"", ""COPD/CHF/Cirrhosis"", ""Cancer"", ""Coma"".",,no
+num.co,Feature,Continuous,,The number of simultaneous diseases (or comorbidities) exhibited by the patient. Values are ordinal with higher values indicating worse condition and chances of survival.,,no
+edu,Feature,Categorical,Education Level,Years of education,years,yes
+income,Feature,Categorical,Income,"Income of the patient. Listed values are {""$11-$25k"", ""$25-$50k"", "">$50k"", ""under $11k""}.",,yes
+scoma,Feature,Continuous,,SUPPORT day 3 Coma Score based on Glasgow scale (predicted by a model).,,yes
+charges,Feature,Continuous,,Hospital charges,,yes
+totcst,Feature,Continuous,,Total ratio of costs to charges (RCC) cost,,yes
+totmcst,Feature,Continuous,,Total micro cost,,yes
+avtisst,Feature,Continuous,,"Average TISS score, days 3-25, where Therapeutic Intervention Scoring System (TISS) is a method for calculating costs in the intensive care unit (ICU) and intermediate care unit (IMCU).",,yes
+race,Feature,Categorical,Race,"Race of the patient. Listed values are {asian, black, hispanic, missing, other, white}.",,yes
+sps,Feature,Continuous,,SUPPORT physiology score on day 3 (predicted by a model).,,yes
+aps,Feature,Continuous,,"APACHE III day 3 physiology score (no coma, imp bun,uout for ph1)",,yes
+surv2m,Feature,Continuous,,SUPPORT model 2-month survival estimate at day 3  (predicted by a model),,yes
+surv6m,Feature,Continuous,,SUPPORT model 6-month survival estimate at day 3  (predicted by a model),,yes
+hday,Feature,Integer,,Day in hospital at which patient entered study.,,no
+diabetes,Feature,Continuous,,"Whether the patient exhibits diabetes (Com 27-28, Dx 73) as a comorbidity (Y) or not (N).",,no
+dementia,Feature,Continuous,,Whether the patient exhibits dementia (Comorbidity 6) as a comorbidity (Y) or not (N).,,no
+ca,Feature,Categorical,,"Whether the patient has cancer (yes), whether it has spread out (metastatic), or if it is healthy (no).",,no
+prg2m,Feature,Continuous,,Physician’s 2-month survival estimate for patient.,,yes
+prg6m,Feature,Categorical,,Physician’s 6-month survival estimate for patient.,,yes
+dnr,Feature,Categorical,,"Whether the patient has a do not rescuscitate (DNR) order or not. Possible values are dnr after sadm, dnr before sadm, missing, no dnr.",,yes
+dnrday,Feature,Continuous,,Day of DNR order (<0 if before study),,yes
+meanbp,Feature,Continuous,,"mean arterial blood pressure of the patient, measured at day 3.",,yes
+wblc,Feature,Continuous,,counts of white blood cells (in thousands) measured at day 3.,,yes
+hrt,Feature,Continuous,,heart rate of the patient measured at day 3.,,yes
+resp,Feature,Continuous,,respiration rate of the patient measured at day 3.,,yes
+temp,Feature,Continuous,,temperature in Celsius degrees measured at day 3.,,no
+pafi,Feature,Continuous,,"$PaO_2/FiO_2$ ratio measured at day 3. The ratio of arterial oxygen partial pressure (PaO2 in mmHg) to fractional inspired oxygen (FiO2 expressed as a fraction). Widely used clinical indicator of hypoxaemia, though its diagnostic utility is controversial. Specific ranges of values can be associated with different levels of mortality. May be worth considering binning these values according to some ranges: https://litfl.com/pao2-fio2-ratio/",,yes
+alb,Feature,Continuous,,serum albumin levels measured at day 3.,,yes
+bili,Feature,Continuous,,bilirubin levels measured at day 3.,,yes
+crea,Feature,Continuous,,serum creatinine levels measured at day 3.,,yes
+sod,Feature,Continuous,,serum sodium concentration measured at day 3.,,yes
+ph,Feature,Continuous,,"Arterial blood pH. The pH of blood is usually between 7.35 and 7.45. Abnormal results may be due to lung, kidney, metabolic diseases, or medicines. Head or neck injuries or other injuries that affect breathing can also lead to abnormal results.",,yes
+glucose,Feature,Integer,,Glucose levels measured at day 3.,,yes
+bun,Feature,Integer,,Blood urea nitrogen levels measured at day 3.,,yes
+urine,Feature,Integer,,Urine output measured at day 3.,,yes
+adlp,Feature,Categorical,,"Index of Activities of Daily Living (ADL) of the patient, filled out by the patient. Higher values indicate more chance of survival, measured at day 3.",,yes
+adls,Feature,Continuous,,"Index of Activities of Daily Living (ADL) of the patient, filled out by a surrogate (e.g. family member), measured at day 3. Higher values indicate more chance of survival.",,yes
+sfdm2,Target,Categorical,,"Level of functional disability of the patient in a 1-5 scale, with 5 being the highest severity. The values were obtained via questionairres to the patient and/or surrogates to determine the Sickness Profile Impact (SIP). Values are correlated with ADLS, ADLP columns. Listed values are: {1: ""no(Month 2 and SIP pres)"", ""adl>=4 (>=5 if sur)"", ""SIP>=30"", ""Coma or Intub"", 5: ""<2 mo. follow-up""}. There are 159 patients surviving 2 months for whom there were no patient or surrogate interviews. These patients have missing sfdm2.",,yes
+adlsc,Feature,Continuous,,Imputed ADL Calibrated to Surrogate.,,no
