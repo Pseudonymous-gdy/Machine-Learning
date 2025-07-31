@@ -10,6 +10,8 @@ from sklearn.pipeline import Pipeline
 import seaborn as sns
 from sklearn.metrics import RocCurveDisplay
 import joblib
+# from imblearn.over_sampling import SMOTE
+# from imblearn.pipeline import Pipeline  # 改用imbalanced-learn的pipeline
 
 # 过滤特定警告
 # warnings.filterwarnings('ignore', category=UserWarning, message="l1_ratio.*")  # 过滤l1_ratio警告
@@ -57,6 +59,12 @@ required_cols = [
     'meanbp', 'wblc', 'hrt', 'resp', 'temp', 'pafi', 'alb', 'bili', 
     'crea', 'sod', 'ph', 'glucose', 'bun'
 ]
+
+# 合并小类别（根据医学意义）
+df['sfdm2'] = df['sfdm2'].replace({
+    1.0: 3.0,  # 将类别1合并到类别3
+    2.0: 3.0   # 将类别2合并到类别3
+})
 
 # 3. 准备数据
 X = df[required_cols]
@@ -120,7 +128,7 @@ grid_search = GridSearchCV(
     estimator=pipeline,
     param_grid=param_grid,
     # scoring='roc_auc_ovr' if n_classes > 2 else 'roc_auc',
-    scoring='f1_weighted'
+    scoring='f1_weighted',
     cv=5,
     n_jobs=-1,
     verbose=2
