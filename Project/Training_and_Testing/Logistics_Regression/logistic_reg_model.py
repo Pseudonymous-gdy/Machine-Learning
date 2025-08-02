@@ -11,61 +11,21 @@ from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import mutual_info_classif
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
 
 # 安全读取数据
 try:
-    df = pd.read_csv('data.csv')
+    df = pd.read_csv('preprocessed_data.csv')
     print("Dataset read successfully! Length of dataset:", len(df))
 except Exception as e:
     print("Error reading the CSV file:", e)
     exit()
 
-
-# 处理缺失值 --------------------------------------------------------
-print("\n=== 缺失值处理 ===")
-
-# 缺失值分布
-missing_percent = df.isnull().mean() * 100
-missing_percent = missing_percent[missing_percent > 0].sort_values(ascending=False)
-
-plt.figure(figsize=(12, 6))
-missing_percent.plot(kind='bar')
-plt.title('Missing Value Percentage in Each Column')
-plt.ylabel('Missing Percentage (%)')
-plt.savefig('missing_values.png', dpi=300)
-plt.show()
-
-print("Columns with missing values:")
-print(missing_percent)
-
-# 删除高缺失率列
-threshold = 0.3
-missing_ratio = df.isnull().mean()
-df_reduced = df.loc[:, missing_ratio <= threshold]
-print(f"\nOriginal features: {df.shape[1]}, After removal: {df_reduced.shape[1]}")
-
-# 数值列用中位数填充
-numeric_cols = df_reduced.select_dtypes(include=['number']).columns
-for col in numeric_cols:
-    if df_reduced[col].isnull().any():
-        median_val = df_reduced[col].median()
-        df_reduced[col] = df_reduced[col].fillna(median_val)
-
-# 非数值列用众数填充
-non_numeric_cols = df_reduced.select_dtypes(include='object').columns
-for col in non_numeric_cols:
-    if df_reduced[col].isnull().any():
-        mode_val = df_reduced[col].mode()[0]
-        df_reduced[col] = df_reduced[col].fillna(mode_val)
-
-# One-hot编码
-df_processed = pd.get_dummies(df_reduced, columns=non_numeric_cols, drop_first=True)
-print("\nProcessed dataframe shape:", df_processed.shape)
-
-# 分割数据集 --------------------------------------------------------
 target = 'death'
-X = df_processed.drop(columns=[target])
-y = df_processed[target]
+
+X = df.drop(columns=[target])
+y = df[target]
 
 # 去除可能导致标签泄露的列
 leakage_cols = ['hospdead', 'dnrday', 'totcst', 'totmcst', 'charges', 
@@ -81,92 +41,37 @@ elif len(y.unique()) == 2:
 
 print(f"\nTarget variable '{target}' distribution:\n{y.value_counts(normalize=True)}")
 
-# 标准化
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-X_scaled_df = pd.DataFrame(X_scaled, columns=X.columns)
-
-# 特征选择 --------------------------------------------------------
-print("\n=== 特征选择 ===")
-
-# 相关性分析
-df_corr = pd.concat([X_scaled_df, y], axis=1)
-corr_with_target = df_corr.corr()[target].sort_values(ascending=False)
-corr_with_target.drop(target, inplace=True)
-
-plt.figure(figsize=(10, 6))
-sns.barplot(x=corr_with_target.values, y=corr_with_target.index)
-plt.title(f"Correlation with Target '{target}'")
-plt.xlabel("Correlation Coefficient")
-plt.tight_layout()
-plt.savefig('feature_correlation.png', dpi=300)
-plt.show()
-
-corr_threshold = 0.1
-selected_features_corr = corr_with_target[abs(corr_with_target) > corr_threshold].index.tolist()
-print(f"\nCorrelation-selected features ({len(selected_features_corr)}):")
-
-# 互信息
-mi_scores = mutual_info_classif(X_scaled_df, y, random_state=42)
-mi_df = pd.DataFrame({'Feature': X.columns, 'MI_Score': mi_scores}).sort_values('MI_Score', ascending=False)
-
-plt.figure(figsize=(10, 6))
-sns.barplot(x='MI_Score', y='Feature', data=mi_df.head(20))
-plt.title("Mutual Information Scores (Top 20)")
-plt.tight_layout()
-plt.savefig('feature_mi_scores.png', dpi=300)
-plt.show()
-
-selected_features_mi = mi_df.head(20)['Feature'].tolist()
-print(f"\nMI-selected features ({len(selected_features_mi)}):")
-
-# 随机森林重要性
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
-rf.fit(X_scaled_df, y)
-
-feature_importances = pd.DataFrame({
-    'Feature': X.columns,
-    'Importance': rf.feature_importances_
-}).sort_values('Importance', ascending=False)
-
-plt.figure(figsize=(10, 6))
-sns.barplot(x='Importance', y='Feature', data=feature_importances.head(20))
-plt.title("Random Forest Feature Importance (Top 20)")
-plt.tight_layout()
-plt.savefig('feature_rf_importance.png', dpi=300)
-plt.show()
-
-selected_features_rf = feature_importances.head(20)['Feature'].tolist()
-print(f"\nRF-selected features ({len(selected_features_rf)}):")
-
-# 特征选择综合
-all_methods = {
-    'Correlation': selected_features_corr,
-    'Mutual_Info': selected_features_mi,
-    'Random_Forest': selected_features_rf
-}
-
-feature_selection_counts = pd.DataFrame(index=X.columns)
-for method, features in all_methods.items():
-    feature_selection_counts[method] = feature_selection_counts.index.isin(features).astype(int)
-
-feature_selection_counts['Selection_Count'] = feature_selection_counts.sum(axis=1)
-feature_selection_counts = feature_selection_counts.sort_values('Selection_Count', ascending=False)
-
-print("\nFeature selection consensus:")
-print(feature_selection_counts.head(20))
-
-# 选择被至少2种方法选中的特征
-consensus_features = feature_selection_counts[feature_selection_counts['Selection_Count'] >= 2].index.tolist()
-print(f"\nFinal selected features ({len(consensus_features)}): {consensus_features}")
-
-X_final = X_scaled_df[consensus_features]
-
 # 模型训练 --------------------------------------------------------
 print("\n=== 模型训练 ===")
 X_train, X_test, y_train, y_test = train_test_split(
-    X_final, y, test_size=0.2, random_state=42, stratify=y
+    X, y, test_size=0.2, random_state=42, stratify=y
 )
+
+print("\n=== 数据类型检查 ===")
+print("训练集数据类型分布:")
+print(X_train.dtypes.value_counts())
+
+non_numeric_cols = X_train.select_dtypes(include=['object', 'category']).columns
+if not non_numeric_cols.empty:
+    print(f"\n发现非数值列: {list(non_numeric_cols)}")
+    X_train = pd.get_dummies(X_train, columns=non_numeric_cols, drop_first=True)
+    X_test = pd.get_dummies(X_test, columns=non_numeric_cols, drop_first=True)
+    print(f"独热编码后特征数: {X_train.shape[1]}")
+
+# 构建带预处理的管道
+numeric_cols = X_train.select_dtypes(include=['int64', 'float64']).columns
+categorical_cols = X_train.select_dtypes(include=['object', 'category']).columns
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', StandardScaler(), numeric_cols),
+        ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_cols)
+    ])
+
+pipeline = Pipeline([
+    ('preprocessor', preprocessor),
+    ('clf', LogisticRegression(random_state=42, max_iter=10000, tol=1e-4))
+])
 
 print(f"\nTraining set: {X_train.shape}, Test set: {X_test.shape}")
 print(f"Train class distribution: {np.bincount(y_train)}")
@@ -275,7 +180,7 @@ plt.title('Normalized Confusion Matrix')
 plt.subplot(2, 2, 2)
 clf = best_model.named_steps['clf']
 feature_importance = pd.DataFrame({
-    'Feature': consensus_features,
+    'Feature': X_train.columns,
     'Importance': np.abs(clf.coef_[0])
 }).sort_values('Importance', ascending=False)
 
