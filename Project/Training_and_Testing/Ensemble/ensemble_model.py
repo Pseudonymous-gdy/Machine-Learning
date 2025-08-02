@@ -3,18 +3,20 @@ import pandas as pd
 import warnings
 from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, GradientBoostingClassifier, StackingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score, precision_recall_curve, auc
-from sklearn.utils.class_weight import compute_sample_weight
+from sklearn.utils.class_weight import compute_class_weight, compute_sample_weight
 from sklearn.feature_selection import mutual_info_classif
 import xgboost as xgb
 import matplotlib.pyplot as plt
 import seaborn as sns
-from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import SMOTE, ADASYN, BorderlineSMOTE
 from imblearn.ensemble import BalancedRandomForestClassifier, RUSBoostClassifier
 from collections import Counter
 import time
+import shap  # 添加SHAP库用于模型解释
 
 # 配置设置
 warnings.filterwarnings('ignore')
@@ -25,7 +27,7 @@ def evaluate_model(model, X_test, y_test, model_name):
     try:
         # 尝试使用预测概率进行阈值调整
         y_proba = model.predict_proba(X_test)
-        y_pred = adjust_threshold(y_proba, np.unique(y_test))
+        y_pred = adjust_threshold(y_proba, y_test)  # 修改为传入真实标签用于识别少数类
     except:
         # 如果模型不支持概率预测，使用默认预测
         y_pred = model.predict(X_test)
@@ -55,7 +57,9 @@ def evaluate_model(model, X_test, y_test, model_name):
     plt.title(f'{model_name} Confusion Matrix')
     plt.ylabel('True Label')
     plt.xlabel('Predicted Label')
+    plt.savefig(f'confusion_matrix_{model_name.replace(" ", "_")}.png', dpi=300)
     plt.show()
+    
     # 绘制PR曲线
     plot_pr_curves(model, X_test, y_test, model_name)
     return y_pred
@@ -82,27 +86,31 @@ def plot_pr_curves(model, X_test, y_test, model_name):
         plt.title(f'{model_name} Precision-Recall Curve')
         plt.legend(loc='best')
         plt.grid(True)
+        plt.savefig(f'pr_curve_{model_name.replace(" ", "_")}.png', dpi=300)
         plt.show()
     except Exception as e:
         print(f"Could not plot PR curves for {model_name}: {str(e)}")
 
-def adjust_threshold(y_proba, classes):
+def adjust_threshold(y_proba, y_true):
     """根据类别分布调整决策阈值"""
-    n_classes = len(classes)
-    class_counts = np.bincount(np.argmax(y_proba, axis=1))  # 获取预测分布
-    minority_class = np.argmin(class_counts)  # 动态识别少数类
+    # 从真实标签中识别少数类
+    class_counts = np.bincount(y_true)
+    minority_class = np.argmin(class_counts)
+    n_classes = len(np.unique(y_true))
     
-    thresholds = np.full(n_classes, 0.5)  # 默认阈值
-    
-    # 对少数类使用更低的阈值
-    thresholds[minority_class] = 0.3
+    # 设置阈值 - 对少数类使用更低的阈值
+    thresholds = np.full(n_classes, 0.5)
+    thresholds[minority_class] = 0.2  # 降低少数类的阈值
     
     # 应用阈值
     y_pred = np.argmax(y_proba, axis=1)
     max_proba = np.max(y_proba, axis=1)
     
     for i in range(n_classes):
+        # 找到低置信度样本
         low_confidence_idx = np.where(max_proba < thresholds[i])[0]
+        
+        # 找到高置信度样本
         high_confidence_idx = np.where(
             (y_pred == i) & (y_proba[:, i] >= thresholds[i])
         )[0]
@@ -141,6 +149,22 @@ def optimize_model(model, param_grid, X_train, y_train, cv=3):
     
     return grid_search.best_estimator_
 
+def weighted_ensemble_predict(models, weights, X):
+    """加权融合多个模型的预测概率"""
+    probas = []
+    for (name, model), weight in zip(models.items(), weights):
+        try:
+            proba = model.predict_proba(X) * weight
+            probas.append(proba)
+        except:
+            print(f"Model {name} does not support predict_proba, skipping.")
+    
+    if len(probas) == 0:
+        raise ValueError("No models support probability prediction.")
+    
+    avg_proba = np.mean(probas, axis=0)
+    return np.argmax(avg_proba, axis=1)
+
 # 安全读取数据
 try:
     df = pd.read_csv('data.csv')
@@ -161,7 +185,7 @@ missing_percent.plot(kind='bar')
 plt.title('Missing Value Percentage in Each Column')
 plt.ylabel('Missing Percentage (%)')
 plt.savefig('missing_values.png', dpi=300)
-plt.show()
+# plt.show()
 
 print("Columns with missing values:")
 print(missing_percent)
@@ -228,7 +252,7 @@ plt.title(f"Correlation with Target '{target}'")
 plt.xlabel("Correlation Coefficient")
 plt.tight_layout()
 plt.savefig('feature_correlation.png', dpi=300)
-plt.show()
+# plt.show()
 
 corr_threshold = 0.1
 selected_features_corr = corr_with_target[abs(corr_with_target) > corr_threshold].index.tolist()
@@ -243,12 +267,12 @@ sns.barplot(x='MI_Score', y='Feature', data=mi_df.head(20))
 plt.title("Mutual Information Scores (Top 20)")
 plt.tight_layout()
 plt.savefig('feature_mi_scores.png', dpi=300)
-plt.show()
+# plt.show()
 
 selected_features_mi = mi_df.head(20)['Feature'].tolist()
 print(f"\nMI-selected features ({len(selected_features_mi)}):")
 
-# 3. 随机森林重要性
+# 随机森林重要性
 rf = RandomForestClassifier(n_estimators=100, random_state=42)
 rf.fit(X_scaled_df, y)
 
@@ -262,7 +286,7 @@ sns.barplot(x='Importance', y='Feature', data=feature_importances.head(20))
 plt.title("Random Forest Feature Importance (Top 20)")
 plt.tight_layout()
 plt.savefig('feature_rf_importance.png', dpi=300)
-plt.show()
+# plt.show()
 
 selected_features_rf = feature_importances.head(20)['Feature'].tolist()
 print(f"\nRF-selected features ({len(selected_features_rf)}):")
@@ -278,6 +302,21 @@ feature_selection_counts = pd.DataFrame(index=X.columns)
 for method, features in all_methods.items():
     feature_selection_counts[method] = feature_selection_counts.index.isin(features).astype(int)
 
+# # 计算加权分数
+# feature_selection_counts['Weighted_Score'] = (
+#     feature_selection_counts['Correlation'] * 0.4 +
+#     feature_selection_counts['Mutual_Info'] * 0.3 +
+#     feature_selection_counts['Random_Forest'] * 0.3
+# )
+
+# feature_selection_counts = feature_selection_counts.sort_values('Weighted_Score', ascending=False)
+
+# print("\nFeature selection weighted scores:")
+# print(feature_selection_counts.head(25))
+
+# # 选择前25个特征
+# consensus_features = feature_selection_counts.head(25).index.tolist()
+
 feature_selection_counts['Selection_Count'] = feature_selection_counts.sum(axis=1)
 feature_selection_counts = feature_selection_counts.sort_values('Selection_Count', ascending=False)
 print("\nFeature selection consensus:")
@@ -286,15 +325,6 @@ print(feature_selection_counts.head(20))
 # 选择被至少2种方法选中的特征
 consensus_features = feature_selection_counts[feature_selection_counts['Selection_Count'] >= 2].index.tolist()
 print(f"\nFinal selected features ({len(consensus_features)}): {consensus_features}")
-
-# # 增加特征重要性权重
-# feature_selection_counts['Weighted_Score'] = (
-#     feature_selection_counts['Correlation'] * 0.4 +
-#     feature_selection_counts['Mutual_Info'] * 0.3 +
-#     feature_selection_counts['Random_Forest'] * 0.3
-# )
-# consensus_features = feature_selection_counts.nlargest(25, 'Weighted_Score').index.tolist()
-
 
 X_final = X_scaled_df[consensus_features]
 
@@ -317,14 +347,20 @@ scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
-# # 应用SMOTE过采样
-# print("\nApplying SMOTE to balance classes...")
-# smote = SMOTE(random_state=42, k_neighbors=min(3, min(Counter(y_train).values()) - 1))
-# X_train_res, y_train_res = smote.fit_resample(X_train_scaled, y_train)
-# print("After SMOTE - Train set distribution:", Counter(y_train_res))
+# # 计算类别权重
+class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+class_weight_dict = dict(enumerate(class_weights))
+print(f"Class weights: {class_weight_dict}")
 
-from imblearn.over_sampling import ADASYN
-
+# # 应用改进的过采样技术 - BorderlineSMOTE
+# print("\nApplying BorderlineSMOTE to balance classes...")
+# oversampler = BorderlineSMOTE(
+#     sampling_strategy='auto',
+#     k_neighbors=5,
+#     random_state=42
+# )
+# X_train_res, y_train_res = oversampler.fit_resample(X_train_scaled, y_train)
+# print("After BorderlineSMOTE - Train set distribution:", Counter(y_train_res)) 
 # 使用ADASYN
 oversampler = ADASYN(
     sampling_strategy='auto',
@@ -333,9 +369,10 @@ oversampler = ADASYN(
 )
 
 X_train_res, y_train_res = oversampler.fit_resample(X_train_scaled, y_train)
+print("After ADASYN - Train set distribution:", Counter(y_train_res))
 
-# 计算类别权重
-class_weights = compute_sample_weight('balanced', y_train_res)
+# 计算样本权重
+sample_weights = compute_sample_weight('balanced', y_train_res)
 
 # 模型集合
 models = {}
@@ -373,19 +410,25 @@ training_times['RUSBoost'] = time.time() - start_time
 models['RUSBoost'] = rusboost
 print(f"RUSBoost training completed in {training_times['RUSBoost']:.2f} seconds")
 
-# XGBoost with hyperparameter optimization
-print("\nOptimizing XGBoost...")
+# XGBoost with hyperparameter optimization and class weights
+print("\nOptimizing XGBoost with class weights...")
+start_time = time.time()
+# 计算少数类权重比例
+scale_pos_weight = class_weights[1] / class_weights[0]  # 少数类权重 / 多数类权重
+
 xgb_model = xgb.XGBClassifier(
-    objective='multi:softmax',
-    num_class=n_classes,
-    eval_metric='merror',
+    objective='binary:logistic' if n_classes == 2 else 'multi:softmax',
+    num_class=n_classes if n_classes > 2 else None,
+    eval_metric='logloss' if n_classes == 2 else 'merror',
+    scale_pos_weight=scale_pos_weight if n_classes == 2 else None,
     random_state=42,
     n_jobs=-1
 )
+
 # XGBoost参数网格 
 xgb_param_grid = {
-    'n_estimators': [150, 200, 300],
-    'learning_rate': [0.05, 0.1],
+    'n_estimators': [150, 200, 300, 350],
+    'learning_rate': [0.05, 0.1, 0.01],
     'max_depth': [4, 6],
     'subsample': [0.7, 0.8],
     'colsample_bytree': [0.7, 0.8],
@@ -408,7 +451,7 @@ bagging = BaggingClassifier(
         min_samples_split=10,
         min_samples_leaf=5
     ),
-    n_estimators=150,
+    n_estimators=300,
     max_samples=0.8,
     max_features=0.8,
     random_state=42,
@@ -430,10 +473,34 @@ gb = GradientBoostingClassifier(
     subsample=0.8,
     random_state=42
 )
-gb.fit(X_train_res, y_train_res, sample_weight=class_weights)
+gb.fit(X_train_res, y_train_res, sample_weight=sample_weights)
 training_times['Gradient Boosting'] = time.time() - start_time
 models['Gradient Boosting'] = gb
 print(f"Gradient Boosting training completed in {training_times['Gradient Boosting']:.2f} seconds")
+
+# Stacking集成 - 使用表现最好的模型作为基学习器
+print("\nTraining Stacking Ensemble...")
+start_time = time.time()
+
+# 选择表现最好的三个模型作为基学习器
+base_learners = [
+    ('brf', BalancedRandomForestClassifier(n_estimators=300, max_depth=10)),
+    ('gb', GradientBoostingClassifier(n_estimators=250, learning_rate=0.05)),
+    ('xgb', best_xgb)
+]
+
+# 添加元学习器
+stacker = StackingClassifier(
+    estimators=base_learners,
+    final_estimator=LogisticRegression(class_weight='balanced', max_iter=2000),
+    cv=5,
+    n_jobs=-1
+)
+
+stacker.fit(X_train_res, y_train_res)
+training_times['Stacking'] = time.time() - start_time
+models['Stacking'] = stacker
+print(f"Stacking training completed in {training_times['Stacking']:.2f} seconds")
 
 # 评估所有模型
 print("\nEvaluating all models...")
@@ -475,7 +542,7 @@ for i, (name, model) in enumerate(models.items(), 1):
             importances = model.feature_importances_
             indices = np.argsort(importances)[::-1]
             
-            plt.subplot(2, 3, i)
+            plt.subplot(3, 3, i)
             plt.barh(range(10), importances[indices][:10], align='center')
             plt.yticks(range(10), [X.columns[idx] for idx in indices[:10]])
             plt.xlabel('Feature Importance')
@@ -484,12 +551,101 @@ for i, (name, model) in enumerate(models.items(), 1):
         print(f"Could not get feature importances for {name}: {str(e)}")
 
 plt.tight_layout()
+plt.savefig('feature_importances.png', dpi=300)
 plt.show()
 
-# 保存图片
-plt.savefig('feature_importances.png', dpi=300)
+# 加权融合模型预测
+print("\nEvaluating Weighted Ensemble Fusion...")
+# 基于验证集性能设置权重
+weights = [0.25, 0.20, 0.18, 0.15, 0.12, 0.10]  # 按模型性能分配权重
+
+# 移除Stacking模型（因为它本身已经是集成模型）
+fusion_models = {k: v for k, v in models.items() if k != 'Stacking'}
+fusion_weights = weights[:len(fusion_models)]
+
+# 评估融合模型
+y_pred_fused = weighted_ensemble_predict(fusion_models, fusion_weights, X_test_scaled)
+
+# 评估融合模型性能
+print("\nFused Model Evaluation:")
+print("=" * 50)
+print("accuracy:", accuracy_score(y_test, y_pred_fused))
+print("Weighted F1 score:", f1_score(y_test, y_pred_fused, average='weighted'))
+print("Macro average F1 score:", f1_score(y_test, y_pred_fused, average='macro'))
+
+# 添加每个类别的F1分数
+for cls in np.unique(y_test):
+    cls_f1 = f1_score(y_test, y_pred_fused, labels=[cls], average=None)[0]
+    print(f"Class {cls} F1 score: {cls_f1:.4f}")
+
+print("\nClassification report:")
+print(classification_report(y_test, y_pred_fused, digits=3))
+
+# 保存融合模型结果到比较表
+results['Weighted Fusion'] = {
+    'accuracy': accuracy_score(y_test, y_pred_fused),
+    'f1_weighted': f1_score(y_test, y_pred_fused, average='weighted'),
+    'f1_macro': f1_score(y_test, y_pred_fused, average='macro'),
+    'train_time': 'N/A',
+    'eval_time': 'N/A'
+}
+
+for cls in np.unique(y_test):
+    cls_f1 = f1_score(y_test, y_pred_fused, labels=[cls], average=None)[0]
+    results['Weighted Fusion'][f'f1_class_{cls}'] = cls_f1
+
+# 更新模型比较表
+print("\nUpdated Model Comparison with Fusion:")
+print("=" * 60)
+comparison = pd.DataFrame(results).T
+comparison = comparison.sort_values(by='f1_weighted', ascending=False)
+print(comparison)
 
 # 保存最佳模型
 best_model_name = comparison.index[0]
-best_model = models[best_model_name]
+best_model = models.get(best_model_name, None) or fusion_models.get(best_model_name, None)
 print(f"\nBest model identified: {best_model_name} with weighted F1: {comparison.loc[best_model_name, 'f1_weighted']:.4f}")
+
+# 使用SHAP分析最佳模型对类别0的预测
+if best_model_name != 'Weighted Fusion' and hasattr(best_model, 'predict_proba'):
+    print("\nAnalyzing feature impact on minority class using SHAP...")
+    try:
+        # 创建SHAP解释器
+        explainer = shap.TreeExplainer(best_model)
+        
+        # 计算SHAP值
+        shap_values = explainer.shap_values(X_test_scaled)
+        
+        # 分析类别0的预测
+        plt.figure(figsize=(12, 8))
+        shap.summary_plot(
+            shap_values[0], 
+            X_test_scaled, 
+            feature_names=consensus_features,
+            plot_type='dot',
+            show=False
+        )
+        plt.title('Feature Impact on Class 0 (Death)')
+        plt.tight_layout()
+        plt.savefig('shap_class0_impact.png', dpi=300)
+        plt.show()
+        
+        # 特定类别0样本的SHAP解释
+        minority_indices = np.where(y_test == 0)[0]
+        if len(minority_indices) > 0:
+            sample_idx = minority_indices[0]
+            plt.figure(figsize=(10, 6))
+            shap.force_plot(
+                explainer.expected_value[0], 
+                shap_values[0][sample_idx], 
+                X_test_scaled[sample_idx],
+                feature_names=consensus_features,
+                show=False
+            )
+            plt.title(f'SHAP Explanation for Sample {sample_idx} (Class 0)')
+            plt.tight_layout()
+            plt.savefig('shap_class0_sample.png', dpi=300)
+            plt.show()
+            
+    except Exception as e:
+        print(f"SHAP analysis failed: {str(e)}")
