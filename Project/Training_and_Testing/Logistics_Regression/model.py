@@ -1,304 +1,304 @@
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
-import warnings  # 添加警告过滤
+import joblib
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, roc_curve
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
-import seaborn as sns
-from sklearn.metrics import RocCurveDisplay
-import joblib
-# from imblearn.over_sampling import SMOTE
-# from imblearn.pipeline import Pipeline  # 改用imbalanced-learn的pipeline
+from sklearn.feature_selection import mutual_info_classif
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.utils.class_weight import compute_class_weight
 
-# 过滤特定警告
-# warnings.filterwarnings('ignore', category=UserWarning, message="l1_ratio.*")  # 过滤l1_ratio警告
-# warnings.filterwarnings('ignore', category=FutureWarning)  # 过滤未来警告
-# warnings.filterwarnings('ignore', category=ConvergenceWarning)  # 过滤收敛警告
-
-# 1. 安全读取数据
+# 安全读取数据
 try:
-    df = pd.read_csv('preprocessed_data.csv')
-    print("dataset read successfully! len of dataset:", len(df))
+    df = pd.read_csv('data.csv')
+    print("Dataset read successfully! Length of dataset:", len(df))
 except Exception as e:
     print("Error reading the CSV file:", e)
     exit()
 
-# 2. 定义标签列和特征列
-label = 'sfdm2'
 
-# 使用实际特征名称
-# required_cols = [
-#     'age', 'sex_1', 
-#     'dzgroup_1', 'dzgroup_2', 'dzgroup_3', 'dzgroup_4', 'dzgroup_5', 'dzgroup_6', 'dzgroup_7',
-#     'dzclass_1', 'dzclass_2', 'dzclass_3',
-#     'num.co', 'edu', 'income', 
-#     'scoma', 'sps', 'aps', 
-#     'race_1', 'race_2', 'race_3', 'race_4',
-#     'ca_1', 'ca_2', 
-#     'meanbp', 'wblc', 'hrt', 'resp', 'temp', 'pafi', 'alb', 'bili', 
-#     'crea', 'sod', 'ph', 'glucose', 'bun'
-# ]
-# 使用实际特征名称
-required_cols = [
-    'age', 
-    'sex_0', 
-    'sex_1', 
-    'dzgroup_0',
-    'dzgroup_1', 'dzgroup_2', 'dzgroup_3', 'dzgroup_4', 'dzgroup_5', 'dzgroup_6', 'dzgroup_7',
-    'dzclass_0',
-    'dzclass_1', 'dzclass_2', 'dzclass_3',
-    'num.co', 'edu', 'income', 
-    'scoma', 'sps', 'aps', 
-    'race_0',
-    'race_1', 'race_2', 'race_3', 'race_4',
-    'ca_0',
-    'ca_1', 'ca_2', 
-    'meanbp', 'wblc', 'hrt', 'resp', 'temp', 'pafi', 'alb', 'bili', 
-    'crea', 'sod', 'ph', 'glucose', 'bun'
-]
+# 处理缺失值 --------------------------------------------------------
+print("\n=== 缺失值处理 ===")
 
-# 合并小类别（根据医学意义）
-df['sfdm2'] = df['sfdm2'].replace({
-    1.0: 3.0,  # 将类别1合并到类别3
-    2.0: 3.0   # 将类别2合并到类别3
-})
+# 可视化缺失值分布
+missing_percent = df.isnull().mean() * 100
+missing_percent = missing_percent[missing_percent > 0].sort_values(ascending=False)
 
-# 3. 准备数据
-X = df[required_cols]
-y = df[label]
+plt.figure(figsize=(12, 6))
+missing_percent.plot(kind='bar')
+plt.title('Missing Value Percentage in Each Column')
+plt.ylabel('Missing Percentage (%)')
+plt.savefig('missing_values.png', dpi=300)
+plt.show()
 
-# 检查类别数量
-n_classes = len(np.unique(y))
-print(f"\ntarget '{label}' has {n_classes} classes")
-print("distribution:", np.bincount(y))
+print("Columns with missing values:")
+print(missing_percent)
 
-# 4. 划分数据集
+# 删除高缺失率列
+threshold = 0.3
+missing_ratio = df.isnull().mean()
+df_reduced = df.loc[:, missing_ratio <= threshold]
+print(f"\nOriginal features: {df.shape[1]}, After removal: {df_reduced.shape[1]}")
+
+# 数值列用中位数填充
+numeric_cols = df_reduced.select_dtypes(include=['number']).columns
+for col in numeric_cols:
+    if df_reduced[col].isnull().any():
+        median_val = df_reduced[col].median()
+        df_reduced[col] = df_reduced[col].fillna(median_val)
+
+# 非数值列用众数填充
+non_numeric_cols = df_reduced.select_dtypes(include='object').columns
+for col in non_numeric_cols:
+    if df_reduced[col].isnull().any():
+        mode_val = df_reduced[col].mode()[0]
+        df_reduced[col] = df_reduced[col].fillna(mode_val)
+
+# One-hot编码
+df_processed = pd.get_dummies(df_reduced, columns=non_numeric_cols, drop_first=True)
+print("\nProcessed dataframe shape:", df_processed.shape)
+
+# 分割数据集 --------------------------------------------------------
+target = 'death'
+X = df_processed.drop(columns=[target])
+y = df_processed[target]
+
+# 去除可能导致标签泄露的列
+leakage_cols = ['hospdead', 'dnrday', 'totcst', 'totmcst', 'charges', 
+                'totcst_log', 'totmcst_log', 'hday', 'long_term_diff', 
+                'short_term_diff', 'surv2m', 'dnr', 'prg6m']
+X = X.drop(columns=leakage_cols, errors='ignore')
+
+# 目标变量类型转换
+if y.dtype == object:
+    y = y.astype('category').cat.codes
+elif len(y.unique()) == 2:
+    y = y.astype(int)
+
+print(f"\nTarget variable '{target}' distribution:\n{y.value_counts(normalize=True)}")
+
+# 标准化
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+X_scaled_df = pd.DataFrame(X_scaled, columns=X.columns)
+
+# 特征选择 --------------------------------------------------------
+print("\n=== 特征选择 ===")
+
+# 1. 相关性分析
+df_corr = pd.concat([X_scaled_df, y], axis=1)
+corr_with_target = df_corr.corr()[target].sort_values(ascending=False)
+corr_with_target.drop(target, inplace=True)
+
+plt.figure(figsize=(10, 6))
+sns.barplot(x=corr_with_target.values, y=corr_with_target.index)
+plt.title(f"Correlation with Target '{target}'")
+plt.xlabel("Correlation Coefficient")
+plt.tight_layout()
+plt.savefig('feature_correlation.png', dpi=300)
+plt.show()
+
+corr_threshold = 0.1
+selected_features_corr = corr_with_target[abs(corr_with_target) > corr_threshold].index.tolist()
+print(f"\nCorrelation-selected features ({len(selected_features_corr)}):")
+
+# 2. 互信息
+mi_scores = mutual_info_classif(X_scaled_df, y, random_state=42)
+mi_df = pd.DataFrame({'Feature': X.columns, 'MI_Score': mi_scores}).sort_values('MI_Score', ascending=False)
+
+plt.figure(figsize=(10, 6))
+sns.barplot(x='MI_Score', y='Feature', data=mi_df.head(20))
+plt.title("Mutual Information Scores (Top 20)")
+plt.tight_layout()
+plt.savefig('feature_mi_scores.png', dpi=300)
+plt.show()
+
+selected_features_mi = mi_df.head(20)['Feature'].tolist()
+print(f"\nMI-selected features ({len(selected_features_mi)}):")
+
+# 3. 随机森林重要性
+rf = RandomForestClassifier(n_estimators=100, random_state=42)
+rf.fit(X_scaled_df, y)
+
+feature_importances = pd.DataFrame({
+    'Feature': X.columns,
+    'Importance': rf.feature_importances_
+}).sort_values('Importance', ascending=False)
+
+plt.figure(figsize=(10, 6))
+sns.barplot(x='Importance', y='Feature', data=feature_importances.head(20))
+plt.title("Random Forest Feature Importance (Top 20)")
+plt.tight_layout()
+plt.savefig('feature_rf_importance.png', dpi=300)
+plt.show()
+
+selected_features_rf = feature_importances.head(20)['Feature'].tolist()
+print(f"\nRF-selected features ({len(selected_features_rf)}):")
+
+# 特征选择综合
+all_methods = {
+    'Correlation': selected_features_corr,
+    'Mutual_Info': selected_features_mi,
+    'Random_Forest': selected_features_rf
+}
+
+feature_selection_counts = pd.DataFrame(index=X.columns)
+for method, features in all_methods.items():
+    feature_selection_counts[method] = feature_selection_counts.index.isin(features).astype(int)
+
+feature_selection_counts['Selection_Count'] = feature_selection_counts.sum(axis=1)
+feature_selection_counts = feature_selection_counts.sort_values('Selection_Count', ascending=False)
+
+print("\nFeature selection consensus:")
+print(feature_selection_counts.head(20))
+
+# 选择被至少2种方法选中的特征
+consensus_features = feature_selection_counts[feature_selection_counts['Selection_Count'] >= 2].index.tolist()
+print(f"\nFinal selected features ({len(consensus_features)}): {consensus_features}")
+
+X_final = X_scaled_df[consensus_features]
+
+# 模型训练 --------------------------------------------------------
+print("\n=== 模型训练 ===")
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.3, random_state=42, stratify=y
+    X_final, y, test_size=0.2, random_state=42, stratify=y
 )
 
-print(f"\ntraining size: {X_train.shape}, testing size: {X_test.shape}")
-print(f"training class distribution: {np.bincount(y_train)}")
-print(f"testing class distribution: {np.bincount(y_test)}")
+print(f"\nTraining set: {X_train.shape}, Test set: {X_test.shape}")
+print(f"Train class distribution: {np.bincount(y_train)}")
+print(f"Test class distribution: {np.bincount(y_test)}")
 
-# 5. 创建处理管道（增加max_iter和tol）
+# 类别权重
+classes = np.unique(y_train)
+weights = compute_class_weight('balanced', classes=classes, y=y_train)
+class_weights = dict(zip(classes, weights))
+
+# 创建处理管道
 pipeline = Pipeline([
-    ('scaler', StandardScaler()),
     ('clf', LogisticRegression(
         random_state=42, 
-        max_iter=10000,  # 增加到10000
-        tol=1e-4,        # 添加容差参数
-        # 移除了multi_class参数（新版自动处理）
+        max_iter=10000,
+        tol=1e-4
     ))
 ])
 
-# 6. 优化超参数网格（拆分参数网格）
-class_weights = {
-    0.0: 1, 
-    1.0: 50,  # 大幅提高权重
-    2.0: 10,
-    3.0: 10,
-    4.0: 1
-}
-
+# 优化超参数网格
 param_grid = [
-    # 非elasticnet参数网格
     {
         'clf__penalty': ['l1', 'l2'],
-        'clf__C': [0.001, 0.01, 0.1, 1, 10, 100],
+        'clf__C': np.logspace(-3, 2, 6),
         'clf__solver': ['saga'],
-        'clf__class_weight': [None, 'balanced', class_weights]
+        'clf__class_weight': [class_weights, 'balanced']
     },
-    # elasticnet专用参数网格
     {
         'clf__penalty': ['elasticnet'],
-        'clf__C': [0.001, 0.01, 0.1, 1, 10, 100],
+        'clf__C': np.logspace(-3, 2, 6),
         'clf__solver': ['saga'],
-        'clf__class_weight': [None, 'balanced', class_weights],
-        'clf__l1_ratio': [0.3, 0.5, 0.7]
+        # 'clf__class_weight': [None, class_weights],
+        'clf__class_weight': [class_weights, 'balanced'],
+        'clf__l1_ratio': [0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 1.0]
     }
 ]
 
-# 7. 网格搜索优化
-print("\nstart grid search...")
+# 网格搜索优化
+print("\nStarting grid search...")
 grid_search = GridSearchCV(
     estimator=pipeline,
     param_grid=param_grid,
-    # scoring='roc_auc_ovr' if n_classes > 2 else 'roc_auc',
-    scoring='f1_weighted',
+    # scoring='f1_weighted',
+    scoring='f1_macro', # 使用宏平均F1分数，更关注少数类
     cv=5,
     n_jobs=-1,
-    verbose=2
+    verbose=1
 )
 grid_search.fit(X_train, y_train)
-print("hyperparameter search completed!")
+print("Hyperparameter search completed!")
 
-# 8. 评估最佳模型
+# 评估最佳模型
 best_params = grid_search.best_params_
 best_score = grid_search.best_score_
 best_model = grid_search.best_estimator_
 
-print("\n=== best hyperparameters ===")
-print(best_params)
-print(f"best cross-validation AUC: {best_score:.4f}")
+print("\n=== Best Model ===")
+print(f"Best params: {best_params}")
+print(f"Best CV F1: {best_score:.4f}")
 
-# 9. 测试集评估
+# 模型在训练集上的评估
+y_train_pred = best_model.predict(X_train)
+y_train_proba = best_model.predict_proba(X_train)[:, 1]
+
+print("\n=== Train Performance ===")
+print(f"Train Accuracy: {accuracy_score(y_train, y_train_pred):.4f}")
+print(f"Train AUC: {roc_auc_score(y_train, y_train_proba):.4f}")
+print("\nClassification Report:")
+print(classification_report(y_train, y_train_pred))
+# 可视化训练集结果
+plt.figure(figsize=(15, 12))
+# 混淆矩阵
+plt.subplot(2, 2, 1)
+cm_train = confusion_matrix(y_train, y_train_pred)
+cm_train_normalized = cm_train.astype('float') / cm_train.sum(axis=1)
+sns.heatmap(cm_train_normalized, annot=True, fmt=".2f", cmap='Blues', 
+            xticklabels=np.unique(y), yticklabels=np.unique(y))
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.title('Normalized Confusion Matrix (Train)')
+
+# 测试集评估
 y_pred = best_model.predict(X_test)
-test_accuracy = accuracy_score(y_test, y_pred)
+y_proba = best_model.predict_proba(X_test)[:, 1]
 
-print("\n=== test set performance ===")
-print(f"accuracy: {test_accuracy:.4f}")
-print("\nclassification report:")
+print("\n=== Test Performance ===")
+print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")
+print(f"AUC: {roc_auc_score(y_test, y_proba):.4f}")
+print("\nClassification Report:")
 print(classification_report(y_test, y_pred))
 
-# 多分类AUC计算
-if n_classes > 2:
-    y_proba = best_model.predict_proba(X_test)
-    test_auc = roc_auc_score(y_test, y_proba, multi_class='ovr')
-    print(f"muti-classification AUC (One-vs-Rest): {test_auc:.4f}")
-else:
-    y_proba = best_model.predict_proba(X_test)[:, 1]
-    test_auc = roc_auc_score(y_test, y_proba)
-    print(f"AUC: {test_auc:.4f}")
+# 可视化结果
+plt.figure(figsize=(15, 12))
 
-# 10. 可视化结果
-plt.figure(figsize=(16, 12))
-
-# 10.1 混淆矩阵（标准化显示）
+# 混淆矩阵
 plt.subplot(2, 2, 1)
 cm = confusion_matrix(y_test, y_pred)
-cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]  # 标准化
-
+cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
 sns.heatmap(cm_normalized, annot=True, fmt=".2f", cmap='Blues', 
             xticklabels=np.unique(y), yticklabels=np.unique(y))
-plt.xlabel('predicted label')
-plt.ylabel('true label')
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
 plt.title('Normalized Confusion Matrix')
 
-# 10.2 特征重要性（使用实际特征名称）
+# 特征重要性
 plt.subplot(2, 2, 2)
 clf = best_model.named_steps['clf']
-
-# 处理多分类系数
-if n_classes > 2:
-    # 计算特征平均重要性
-    feature_importance = np.mean(np.abs(clf.coef_), axis=0)
-else:
-    feature_importance = np.abs(clf.coef_[0])
-
-# 创建特征重要性DataFrame
-importance_df = pd.DataFrame({
-    'Feature': required_cols,
-    'Importance': feature_importance
+feature_importance = pd.DataFrame({
+    'Feature': consensus_features,
+    'Importance': np.abs(clf.coef_[0])
 }).sort_values('Importance', ascending=False)
 
-# 取前15个重要特征
-top_features = importance_df.head(15)
+sns.barplot(x='Importance', y='Feature', data=feature_importance.head(15))
+plt.title('Top Feature Importances')
+plt.xlabel('Absolute Coefficient Value')
 
-# 绘制水平条形图
-plt.barh(top_features['Feature'], top_features['Importance'])
-plt.xlabel('Mean absolute coefficient value')
-plt.title('Top 15 feature importances')
-plt.gca().invert_yaxis()  # 最重要特征在顶部
-
-# 10.3 ROC曲线（多类别处理）
+# ROC曲线
 plt.subplot(2, 2, 3)
-if n_classes > 2:
-    # 绘制每个类别的ROC曲线
-    for i in range(n_classes):
-        RocCurveDisplay.from_predictions(
-            y_test == i,
-            y_proba[:, i],
-            name=f"Class {i}",
-            ax=plt.gca()
-        )
-    plt.plot([0, 1], [0, 1], 'k--', label="random guessing")
-    plt.legend()
-    plt.title('Multi-class ROC Curve (One-vs-Rest)')
-else:
-    fpr, tpr, _ = roc_curve(y_test, y_proba)
-    plt.plot(fpr, tpr, label=f'LogReg (AUC = {test_auc:.4f})')
-    plt.plot([0, 1], [0, 1], 'k--')
-    plt.xlabel('False Positive Rate (FPR)')
-    plt.ylabel('True Positive Rate (TPR)')
-    plt.title('ROC Curve')
-    plt.legend(loc='lower right')
-
-# 10.4 正则化路径修正（使用相同预处理）
-plt.subplot(2, 2, 4)
-c_values = np.logspace(-3, 2, 20)
-coef_paths = []
-
-# 使用相同的预处理
-scaler = best_model.named_steps['scaler']
-X_train_scaled = scaler.transform(X_train)
-
-# 提取最佳参数（安全获取l1_ratio）
-best_penalty = best_params.get('clf__penalty', 'l2')
-best_solver = best_params.get('clf__solver', 'saga')
-best_class_weight = best_params.get('clf__class_weight', None)
-best_l1_ratio = best_params.get('clf__l1_ratio', None)  # 可能不存在
-
-for c in c_values:
-    # 动态设置参数
-    model_params = {
-        'penalty': best_penalty,
-        'C': c,
-        'solver': best_solver,
-        'class_weight': best_class_weight,
-        'max_iter': 10000,
-        'random_state': 42,
-        'tol': 1e-4
-    }
-    
-    # 仅在elasticnet时设置l1_ratio
-    if best_penalty == 'elasticnet' and best_l1_ratio is not None:
-        model_params['l1_ratio'] = best_l1_ratio
-    
-    model = LogisticRegression(**model_params)
-    model.fit(X_train_scaled, y_train)
-    
-    # 存储特征重要性（多分类取平均）
-    if n_classes > 2:
-        coef_paths.append(np.mean(np.abs(model.coef_), axis=0))
-    else:
-        coef_paths.append(np.abs(model.coef_[0]))
-
-coef_paths = np.array(coef_paths).T
-
-# 绘制前5个最重要特征的路径
-top_feature_indices = importance_df.index[:5]
-for i in top_feature_indices:
-    feature_name = required_cols[i]
-    # 截断长特征名
-    display_name = feature_name[:15] + '...' if len(feature_name) > 15 else feature_name
-    plt.plot(np.log10(c_values), coef_paths[i], label=display_name)
-
-plt.axvline(np.log10(best_params['clf__C']), color='k', linestyle='--', alpha=0.3, label='Best C value')
-plt.xlabel('log10(C)')
-plt.ylabel('Coefficient absolute value')
-plt.title('Top 5 feature regularization paths')
-plt.legend(loc='best', fontsize=9)
+fpr, tpr, _ = roc_curve(y_test, y_proba)
+plt.plot(fpr, tpr, label=f'AUC = {roc_auc_score(y_test, y_proba):.4f}')
+plt.plot([0, 1], [0, 1], 'k--')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.legend(loc='lower right')
 
 plt.tight_layout()
-plt.savefig('logistic_regression_results.png', dpi=300)
+plt.savefig('model_results.png', dpi=300)
 plt.show()
 
-# 11. 输出模型参数
-print("\n=== 模型参数 ===")
-print(f"截距 (bias): {clf.intercept_}")
-
-print("\n系数 (weights):")
-coef_df = pd.DataFrame(clf.coef_, columns=required_cols, index=[f"Class {i}" for i in range(n_classes)])
-print(coef_df)
-
-# 12. 保存最佳模型
-joblib.dump(best_model, 'best_logistic_regression_model.pkl')
-print("\n模型已保存为 'best_logistic_regression_model.pkl'")
-
-# 13. 保存特征重要性
-importance_df.to_csv('feature_importance.csv', index=False)
-print("特征重要性已保存为 'feature_importance.csv'")
+# 保存结果
+joblib.dump(best_model, 'best_logistic_model.pkl')
+feature_importance.to_csv('feature_importance.csv', index=False)
+print("\nModel saved as 'best_logistic_model.pkl'")
+print("Feature importance saved as 'feature_importance.csv'")

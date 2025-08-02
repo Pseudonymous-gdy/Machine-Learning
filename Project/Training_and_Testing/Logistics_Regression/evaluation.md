@@ -1,117 +1,192 @@
-### 模型表现分析
+# 患者死亡预测逻辑回归模型报告
 
-注：模型分析时，将目标类别1-5改为了0-4
+## 1. 项目概述
+本项目旨在构建一个预测患者死亡风险的逻辑回归模型。基于包含9,105条患者记录的医疗数据集，我们通过系统的数据预处理、特征工程和模型优化流程，开发了一个能够预测患者死亡概率的二分类模型。
 
-从分类报告中可以看出以下关键问题：
+### 关键目标
+- 识别与患者死亡风险高度相关的临床特征
+- 构建可解释的预测模型
+- 平衡模型在少数类（非死亡）上的表现
+- 避免标签泄露问题
 
-1. **严重的类别不平衡问题**：
-   - 类别分布极不均衡：类别0.0（936个样本）和4.0（918个样本）占主导
-   - 少数类别严重不足：类别1.0（仅11个样本）、2.0（169个样本）、3.0（274个样本）
+## 2. 数据预处理与特征工程
 
-2. **模型失效的类别**：
-   - **类别1.0、2.0、3.0完全未被识别**：
-     - 精确率(precision)和召回率(recall)均为0
-     - F1-score=0，说明模型完全无法预测这些类别
-   - **类别3.0识别能力极弱**：
-     - 精确率0.14但召回率0.00，说明预测结果都是误报
 
-3. **评价指标矛盾**：
-   - 宏观平均(macro avg) F1=0.28 显示整体表现差
-   - 加权平均(weighted avg) F1=0.55 被多数类拉高
-   - AUC=0.71 与分类指标不一致，表明模型具有排序能力但缺乏分类能力
-
-### 根本原因诊断
-
-1. **数据层面**：
-   - **样本量不足**：类别1.0仅11个样本，无法训练有效模型
-   - **特征区分度不足**：当前特征无法区分少数类别
-   - **类别定义问题**：可能存在需要合并的小类别
-
-2. **模型选择问题**：
-   - 逻辑回归本质是线性模型，难以处理复杂决策边界
-   - 当前参数设置（正则化强度C）可能不适合少数类
-
-3. **评估指标误导**：
-   - 使用AUC作为网格搜索指标，但实际需要关注recall/F1
-
-### 改进方案
-
-#### 紧急措施（立即见效）
+### 2.2 标签泄露预防
+为避免使用与目标变量直接相关的特征导致模型过拟合，我们移除了可能导致标签泄露的特征：
 ```python
-# 修改网格搜索评估指标 -> 关注少数类的F1-score
-grid_search = GridSearchCV(
-    scoring='f1_weighted',  # 改用加权F1-score
-    # 其他参数保持不变...
-)
-
-# 强制关注少数类 - 自定义类别权重
-class_weights = {
-    0.0: 1, 
-    1.0: 50,  # 大幅提高权重
-    2.0: 10,
-    3.0: 10,
-    4.0: 1
-}
-
-param_grid = [
-    {
-        'clf__class_weight': [None, 'balanced', class_weights]  # 添加自定义权重
-    },
-    # 其他参数网格...
-]
+leakage_cols = ['hospdead', 'dnrday', 'totcst', 'totmcst', 'charges', 
+                'totcst_log', 'totmcst_log', 'hday', 'long_term_diff', 
+                'short_term_diff', 'surv2m', 'dnr', 'prg6m']
+X = X.drop(columns=leakage_cols, errors='ignore')
 ```
 
-#### 中期解决方案
-1. **数据重构**：
-   ```python
-   # 合并小类别（根据医学意义）
-   df['sfdm2'] = df['sfdm2'].replace({
-       1.0: 3.0,  # 将类别1合并到类别3
-       2.0: 3.0   # 将类别2合并到类别3
-   })
+### 2.3 数据分布与类别不平衡
+目标变量分布呈现明显的不平衡：
+```
+Target variable 'death' distribution:
+death
+1    0.681054  # 死亡(多数类)
+0    0.318946  # 非死亡(少数类)
+```
+这种不平衡会影响模型对少数类的识别能力，需在建模中特别处理。
+
+
+
+## 4. 模型构建与优化
+
+### 4.1 处理类别不平衡
+```python
+ 类别权重
+classes = np.unique(y_train)
+weights = compute_class_weight('balanced', classes=classes, y=y_train)
+class_weights = dict(zip(classes, weights))
+
+# 创建处理管道
+pipeline = Pipeline([
+    ('clf', LogisticRegression(
+        random_state=42, 
+        max_iter=10000,
+        tol=1e-4
+    ))
+])
+
+# 优化超参数网格
+param_grid = [
+    {
+        'clf__penalty': ['l1', 'l2'],
+        'clf__C': np.logspace(-3, 2, 6),
+        'clf__solver': ['saga'],
+        'clf__class_weight': [class_weights, 'balanced']
+    },
+    {
+        'clf__penalty': ['elasticnet'],
+        'clf__C': np.logspace(-3, 2, 6),
+        'clf__solver': ['saga'],
+        # 'clf__class_weight': [None, class_weights],
+        'clf__class_weight': [class_weights, 'balanced'],
+        'clf__l1_ratio': [0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 1.0]
+    }
+]
+
+# 网格搜索优化
+print("\nStarting grid search...")
+grid_search = GridSearchCV(
+    estimator=pipeline,
+    param_grid=param_grid,
+    # scoring='f1_weighted',
+    scoring='f1_macro', # 使用宏平均F1分数，更关注少数类
+    cv=5,
+    n_jobs=-1,
+    verbose=1
+)
+grid_search.fit(X_train, y_train)
+print("Hyperparameter search completed!")
+```
+
+### 4.2 模型选择与超参数优化
+采用逻辑回归模型，通过网格搜索优化关键参数：
+- **正则化类型**：L1/L2/ElasticNet
+- **正则化强度(C)**：0.001到100的对数空间
+- **类别权重**：平衡权重或未加权
+- **L1比例**：ElasticNet正则化的混合比例
+
+```python
+grid_search = GridSearchCV(
+    estimator=pipeline,
+    param_grid=param_grid,
+    # scoring='f1_weighted',
+    scoring='f1_macro', # 使用宏平均F1分数，更关注少数类
+    cv=5,
+    n_jobs=-1,
+    verbose=1
+)
+```
+
+### 4.3 最佳模型参数
+```
+Best params: {
+    'clf__C': 1.0,
+    'clf__class_weight': {0: 1.5678, 1: 0.7341},  # 少数类权重更高
+    'clf__penalty': 'l1',  # L1正则化有助于特征选择
+    'clf__solver': 'saga'
+}
+```
+
+## 5. 模型评估与解释
+
+### 5.1 整体性能指标
+| 指标 | 训练集 | 测试集 |
+|------|--------|--------|
+| **准确率** | 0.7532 | 0.7661 |
+| **AUC** | 0.8438 | 0.8486 |
+| **宏平均F1** | 0.74 | 0.75 |
+
+### 5.2 分类报告（测试集）
+```
+              precision    recall  f1-score   support
+
+           0       0.60      0.80      0.69       581  # 非死亡类
+           1       0.89      0.75      0.81      1240  # 死亡类
+
+    accuracy                           0.77      1821
+   macro avg       0.74      0.78      0.75      1821
+weighted avg       0.80      0.77      0.77      1821
+```
+
+### 5.3 关键发现
+1. **类别平衡改善**：通过类别加权，非死亡类(0)的召回率达到0.80，显著高于未加权模型
+2. **模型稳健性**：测试集AUC(0.8486)略高于训练集(0.8438)，表明模型无过拟合
+3. **特征重要性**：L1正则化自动执行特征选择，得到稀疏解
+
+## 6. 结论与改进方向
+
+### 6.1 模型优势
+- **可解释性强**：逻辑回归提供清晰的特征系数解释
+- **计算高效**：适合部署在资源受限环境
+- **类别平衡处理有效**：通过加权显著提升少数类召回率
+- **特征选择严谨**：多方法融合确保选择最相关特征
+
+### 6.2 改进方向
    
-   # 检查合并后分布
-   print(np.bincount(df['sfdm2']))
-   ```
-
-2. **采样策略优化**：
+2. **模型集成**：
    ```python
-   from imblearn.over_sampling import SMOTE
-   from imblearn.pipeline import Pipeline  # 改用imbalanced-learn的pipeline
+   # 示例：集成逻辑回归与随机森林
+   from sklearn.ensemble import StackingClassifier
    
-   pipeline = Pipeline([
-       ('scaler', StandardScaler()),
-       ('sampler', SMOTE()),  # 添加过采样
-       ('clf', LogisticRegression(...))
-   ])
-   ```
-
-#### 长期根本性改进
-1. **模型替换方案**：
-   ```python
-   # 方案1：改用树形模型（自动处理不平衡数据）
-   from sklearn.ensemble import RandomForestClassifier
-   pipeline.steps[1] = ('clf', RandomForestClassifier(class_weight='balanced'))
+   estimators = [
+       ('lr', LogisticRegression(class_weight='balanced')),
+       ('rf', RandomForestClassifier(n_estimators=100))
+   ]
    
-   # 方案2：梯度提升树（GBDT）
-   from xgboost import XGBClassifier
-   pipeline.steps[1] = ('clf', XGBClassifier(scale_pos_weight=compute_weights()))
+   stack_clf = StackingClassifier(estimators=estimators, final_estimator=LogisticRegression())
    ```
 
-2. **重新定义问题**：
+3. **阈值优化**：
    ```python
-   # 将多分类转为二分类（生存/非生存）
-   df['survival'] = df['sfdm2'].apply(lambda x: 1 if x in [0.0, 4.0] else 0)
+   # 基于业务需求调整分类阈值
+   from sklearn.metrics import precision_recall_curve
+   
+   precision, recall, thresholds = precision_recall_curve(y_test, y_proba)
+   # 选择满足特定召回率/精确度要求的阈值
    ```
-   理由：原始数据中0.0和4.0占83%，可能代表核心业务场景
 
-### 实施路线图
+4. **处理非线性关系**：
+   ```python
+   # 添加多项式特征
+   from sklearn.preprocessing import PolynomialFeatures
+   
+   poly = PolynomialFeatures(degree=2, interaction_only=True)
+   X_poly = poly.fit_transform(X)
+   ```
 
-| 阶段 | 行动项 | 预期效果 | 实施难度 |
-|------|--------|----------|----------|
-| 紧急修复 | 调整类别权重 + 修改评估指标 | 少数类F1提升20% | 低（1小时） |
-| 数据重构 | 合并医学意义相近的类别 | 减少类别数，增加样本 | 中（2小时） |
-| 采样优化 | 实现SMOTE采样管道 | 平衡各类别样本量 | 中（3小时） |
-| 模型升级 | 切换到XGBoost/RF | 综合性能提升30% | 高（1天） |
+### 6.3 应用价值
+本模型可作为临床决策支持工具：
+1. **高风险患者识别**：早期预警系统，识别死亡风险高的患者
+2. **资源分配优化**：指导ICU床位和医疗资源分配
+3. **治疗策略制定**：为高风险患者制定更积极的治疗方案
+4. **预后咨询**：为患者家属提供更准确的预后信息
 
-> **关键建议**：优先执行类别合并（dzgroup/dzclass可能提供合并依据），同时切换为加权F1评估。当前AUC=0.71证明特征信息量足够，问题核心在于模型未能利用这些信息区分少数类。
+> **模型文件**：  
+> - 最佳模型：`best_logistic_model.pkl`  
+> - 特征重要性：`feature_importance.csv`
