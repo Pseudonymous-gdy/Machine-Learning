@@ -105,7 +105,7 @@ param_grid = [
         'clf__solver': ['saga'],
         # 'clf__class_weight': [None, class_weights],
         'clf__class_weight': [class_weights, 'balanced'],
-        'clf__l1_ratio': [0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 1.0]
+        'clf__l1_ratio': [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
     }
 ]
 
