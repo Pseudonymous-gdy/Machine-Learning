@@ -1,0 +1,9 @@
+nominal,ordinal
+"['ARF/MOSF w/Sepsis', 'CHF', 'COPD', 'Cirrhosis', 'Colon Cancer', 'Coma', 'Lung Cancer', 'MOSF w/Malig']",
+"['ARF/MOSF', 'COPD/CHF/Cirrhosis', 'Cancer', 'Coma']",
+"['metastatic', 'no', 'yes']",
+"['dnr after sadm', 'dnr before sadm', 'no dnr']",
+"['female', 'male']",
+"['asian', 'black', 'hispanic', 'other', 'white']",
+,"{0: '$11-$25k', 1: '$25-$50k', 2: '>$50k', 3: 'under $11k'}"
+,"{0: '<2 mo. follow-up', 1: 'Coma or Intub', 2: 'SIP>=30', 3: 'adl>=4 (>=5 if sur)', 4: 'no(M2 and SIP pres)'}"
