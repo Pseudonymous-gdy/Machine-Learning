@@ -24,7 +24,7 @@ except Exception as e:
 # 处理缺失值 --------------------------------------------------------
 print("\n=== 缺失值处理 ===")
 
-# 可视化缺失值分布
+# 缺失值分布
 missing_percent = df.isnull().mean() * 100
 missing_percent = missing_percent[missing_percent > 0].sort_values(ascending=False)
 

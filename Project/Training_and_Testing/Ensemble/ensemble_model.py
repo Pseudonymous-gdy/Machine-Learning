@@ -190,28 +190,27 @@ plt.savefig('missing_values.png', dpi=300)
 print("Columns with missing values:")
 print(missing_percent)
 
-# 删除高缺失率列
+# 删除高缺失的列
 threshold = 0.3
 missing_ratio = df.isnull().mean()
 df_reduced = df.loc[:, missing_ratio <= threshold]
 print(f"\nOriginal features: {df.shape[1]}, After removal: {df_reduced.shape[1]}")
 
-# 数值列用中位数填充
+# 填充缺失值
 numeric_cols = df_reduced.select_dtypes(include=['number']).columns
 for col in numeric_cols:
     if df_reduced[col].isnull().any():
         median_val = df_reduced[col].median()
         df_reduced[col] = df_reduced[col].fillna(median_val)
 
-# 非数值列用众数填充
-non_numeric_cols = df_reduced.select_dtypes(include='object').columns
-for col in non_numeric_cols:
+cat_cols = df_reduced.select_dtypes(include='object').columns
+for col in cat_cols:
     if df_reduced[col].isnull().any():
         mode_val = df_reduced[col].mode()[0]
         df_reduced[col] = df_reduced[col].fillna(mode_val)
 
-# One-hot编码
-df_processed = pd.get_dummies(df_reduced, columns=non_numeric_cols, drop_first=True)
+# One-hot encoding
+df_processed = pd.get_dummies(df_reduced, columns=cat_cols, drop_first=True)
 print("\nProcessed dataframe shape:", df_processed.shape)
 
 # 分割数据集 --------------------------------------------------------
@@ -254,79 +253,65 @@ plt.tight_layout()
 plt.savefig('feature_correlation.png', dpi=300)
 # plt.show()
 
-corr_threshold = 0.1
-selected_features_corr = corr_with_target[abs(corr_with_target) > corr_threshold].index.tolist()
-print(f"\nCorrelation-selected features ({len(selected_features_corr)}):")
+corr_threshold = 0.2
+corr_selected_features = corr_with_target[abs(corr_with_target) > corr_threshold].index.tolist()
+print(f"\nCorrelation-selected features ({len(corr_selected_features)}):")
 
 # 互信息
 mi_scores = mutual_info_classif(X_scaled_df, y, random_state=42)
 mi_df = pd.DataFrame({'Feature': X.columns, 'MI_Score': mi_scores}).sort_values('MI_Score', ascending=False)
 
 plt.figure(figsize=(10, 6))
-sns.barplot(x='MI_Score', y='Feature', data=mi_df.head(20))
-plt.title("Mutual Information Scores (Top 20)")
+sns.barplot(x='MI_Score', y='Feature', data=mi_df.head(25))
+plt.title("Mutual Information Scores")
 plt.tight_layout()
 plt.savefig('feature_mi_scores.png', dpi=300)
 # plt.show()
 
-selected_features_mi = mi_df.head(20)['Feature'].tolist()
-print(f"\nMI-selected features ({len(selected_features_mi)}):")
+mi_selected_features = mi_df.head(25)['Feature'].tolist()
+print(f"\nMI-selected features ({len(mi_selected_features)}):")
 
 # 随机森林重要性
 rf = RandomForestClassifier(n_estimators=100, random_state=42)
 rf.fit(X_scaled_df, y)
 
-feature_importances = pd.DataFrame({
-    'Feature': X.columns,
-    'Importance': rf.feature_importances_
-}).sort_values('Importance', ascending=False)
+feature_importances = pd.DataFrame({'Feature': X.columns,'Importance': rf.feature_importances_}).sort_values('Importance', ascending=False)
 
 plt.figure(figsize=(10, 6))
 sns.barplot(x='Importance', y='Feature', data=feature_importances.head(20))
-plt.title("Random Forest Feature Importance (Top 20)")
+plt.title("Random Forest Feature Importance")
 plt.tight_layout()
 plt.savefig('feature_rf_importance.png', dpi=300)
 # plt.show()
 
-selected_features_rf = feature_importances.head(20)['Feature'].tolist()
-print(f"\nRF-selected features ({len(selected_features_rf)}):")
+randomforest_selected_features = feature_importances.head(20)['Feature'].tolist()
+print(f"\nRF-selected features ({len(randomforest_selected_features)}):")
 
 # 特征选择综合
 all_methods = {
-    'Correlation': selected_features_corr,
-    'Mutual_Info': selected_features_mi,
-    'Random_Forest': selected_features_rf
+    'Correlation': corr_selected_features,
+    'Mutual_Info': mi_selected_features,
+    'Random_Forest': randomforest_selected_features
 }
 
 feature_selection_counts = pd.DataFrame(index=X.columns)
 for method, features in all_methods.items():
     feature_selection_counts[method] = feature_selection_counts.index.isin(features).astype(int)
 
-# # 计算加权分数
-# feature_selection_counts['Weighted_Score'] = (
-#     feature_selection_counts['Correlation'] * 0.4 +
-#     feature_selection_counts['Mutual_Info'] * 0.3 +
-#     feature_selection_counts['Random_Forest'] * 0.3
-# )
+# 计算加权分数
+feature_selection_counts['Weighted_Score'] = (
+    feature_selection_counts['Correlation'] * 0.4 +
+    feature_selection_counts['Mutual_Info'] * 0.3 +
+    feature_selection_counts['Random_Forest'] * 0.3
+)
 
-# feature_selection_counts = feature_selection_counts.sort_values('Weighted_Score', ascending=False)
+feature_selection_counts = feature_selection_counts.sort_values('Weighted_Score', ascending=False)
 
-# print("\nFeature selection weighted scores:")
-# print(feature_selection_counts.head(25))
-
-# # 选择前25个特征
-# consensus_features = feature_selection_counts.head(25).index.tolist()
-
-feature_selection_counts['Selection_Count'] = feature_selection_counts.sum(axis=1)
-feature_selection_counts = feature_selection_counts.sort_values('Selection_Count', ascending=False)
-print("\nFeature selection consensus:")
+print("\nFeature selection weighted scores:")
 print(feature_selection_counts.head(20))
 
-# 选择被至少2种方法选中的特征
-consensus_features = feature_selection_counts[feature_selection_counts['Selection_Count'] >= 2].index.tolist()
-print(f"\nFinal selected features ({len(consensus_features)}): {consensus_features}")
-
-X_final = X_scaled_df[consensus_features]
+# 选择前20个特征
+consensus_features = feature_selection_counts.head(20).index.tolist()
 
 # 检查类别数量
 n_classes = len(np.unique(y))
@@ -352,15 +337,6 @@ class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y
 class_weight_dict = dict(enumerate(class_weights))
 print(f"Class weights: {class_weight_dict}")
 
-# # 应用改进的过采样技术 - BorderlineSMOTE
-# print("\nApplying BorderlineSMOTE to balance classes...")
-# oversampler = BorderlineSMOTE(
-#     sampling_strategy='auto',
-#     k_neighbors=5,
-#     random_state=42
-# )
-# X_train_res, y_train_res = oversampler.fit_resample(X_train_scaled, y_train)
-# print("After BorderlineSMOTE - Train set distribution:", Counter(y_train_res)) 
 # 使用ADASYN
 oversampler = ADASYN(
     sampling_strategy='auto',
