@@ -167,56 +167,16 @@ def weighted_ensemble_predict(models, weights, X):
 
 # 安全读取数据
 try:
-    df = pd.read_csv('data.csv')
+    df = pd.read_csv('preprocessed_data.csv')
     print("Dataset read successfully! Length of dataset:", len(df))
 except Exception as e:
     print("Error reading the CSV file:", e)
     exit()
 
-# 处理缺失值 --------------------------------------------------------
-print("\n=== 缺失值处理 ===")
-
-# 可视化缺失值分布
-missing_percent = df.isnull().mean() * 100
-missing_percent = missing_percent[missing_percent > 0].sort_values(ascending=False)
-
-plt.figure(figsize=(12, 6))
-missing_percent.plot(kind='bar')
-plt.title('Missing Value Percentage in Each Column')
-plt.ylabel('Missing Percentage (%)')
-plt.savefig('missing_values.png', dpi=300)
-# plt.show()
-
-print("Columns with missing values:")
-print(missing_percent)
-
-# 删除高缺失的列
-threshold = 0.3
-missing_ratio = df.isnull().mean()
-df_reduced = df.loc[:, missing_ratio <= threshold]
-print(f"\nOriginal features: {df.shape[1]}, After removal: {df_reduced.shape[1]}")
-
-# 填充缺失值
-numeric_cols = df_reduced.select_dtypes(include=['number']).columns
-for col in numeric_cols:
-    if df_reduced[col].isnull().any():
-        median_val = df_reduced[col].median()
-        df_reduced[col] = df_reduced[col].fillna(median_val)
-
-cat_cols = df_reduced.select_dtypes(include='object').columns
-for col in cat_cols:
-    if df_reduced[col].isnull().any():
-        mode_val = df_reduced[col].mode()[0]
-        df_reduced[col] = df_reduced[col].fillna(mode_val)
-
-# One-hot encoding
-df_processed = pd.get_dummies(df_reduced, columns=cat_cols, drop_first=True)
-print("\nProcessed dataframe shape:", df_processed.shape)
-
-# 分割数据集 --------------------------------------------------------
 target = 'death'
-X = df_processed.drop(columns=[target])
-y = df_processed[target]
+
+X = df.drop(columns=[target])
+y = df[target]
 
 # 去除可能导致标签泄露的列
 leakage_cols = ['hospdead', 'dnrday', 'totcst', 'totmcst', 'charges', 
@@ -230,107 +190,29 @@ if y.dtype == object:
 elif len(y.unique()) == 2:
     y = y.astype(int)
 
-print(f"\nTarget variable '{target}' distribution:\n{y.value_counts(normalize=True)}")
-
-# 标准化
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-X_scaled_df = pd.DataFrame(X_scaled, columns=X.columns)
-
-# 特征选择 --------------------------------------------------------
-print("\n=== 特征选择 ===")
-
-# 相关性分析
-df_corr = pd.concat([X_scaled_df, y], axis=1)
-corr_with_target = df_corr.corr()[target].sort_values(ascending=False)
-corr_with_target.drop(target, inplace=True)
-
-plt.figure(figsize=(10, 6))
-sns.barplot(x=corr_with_target.values, y=corr_with_target.index)
-plt.title(f"Correlation with Target '{target}'")
-plt.xlabel("Correlation Coefficient")
-plt.tight_layout()
-plt.savefig('feature_correlation.png', dpi=300)
-# plt.show()
-
-corr_threshold = 0.2
-corr_selected_features = corr_with_target[abs(corr_with_target) > corr_threshold].index.tolist()
-print(f"\nCorrelation-selected features ({len(corr_selected_features)}):")
-
-# 互信息
-mi_scores = mutual_info_classif(X_scaled_df, y, random_state=42)
-mi_df = pd.DataFrame({'Feature': X.columns, 'MI_Score': mi_scores}).sort_values('MI_Score', ascending=False)
-
-plt.figure(figsize=(10, 6))
-sns.barplot(x='MI_Score', y='Feature', data=mi_df.head(25))
-plt.title("Mutual Information Scores")
-plt.tight_layout()
-plt.savefig('feature_mi_scores.png', dpi=300)
-# plt.show()
-
-mi_selected_features = mi_df.head(25)['Feature'].tolist()
-print(f"\nMI-selected features ({len(mi_selected_features)}):")
-
-# 随机森林重要性
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
-rf.fit(X_scaled_df, y)
-
-feature_importances = pd.DataFrame({'Feature': X.columns,'Importance': rf.feature_importances_}).sort_values('Importance', ascending=False)
-
-plt.figure(figsize=(10, 6))
-sns.barplot(x='Importance', y='Feature', data=feature_importances.head(20))
-plt.title("Random Forest Feature Importance")
-plt.tight_layout()
-plt.savefig('feature_rf_importance.png', dpi=300)
-# plt.show()
-
-randomforest_selected_features = feature_importances.head(20)['Feature'].tolist()
-print(f"\nRF-selected features ({len(randomforest_selected_features)}):")
-
-# 特征选择综合
-all_methods = {
-    'Correlation': corr_selected_features,
-    'Mutual_Info': mi_selected_features,
-    'Random_Forest': randomforest_selected_features
-}
-
-feature_selection_counts = pd.DataFrame(index=X.columns)
-for method, features in all_methods.items():
-    feature_selection_counts[method] = feature_selection_counts.index.isin(features).astype(int)
-
-# 计算加权分数
-feature_selection_counts['Weighted_Score'] = (
-    feature_selection_counts['Correlation'] * 0.4 +
-    feature_selection_counts['Mutual_Info'] * 0.3 +
-    feature_selection_counts['Random_Forest'] * 0.3
-)
-
-feature_selection_counts = feature_selection_counts.sort_values('Weighted_Score', ascending=False)
-
-print("\nFeature selection weighted scores:")
-print(feature_selection_counts.head(20))
-
-# 选择前20个特征
-consensus_features = feature_selection_counts.head(20).index.tolist()
-
 # 检查类别数量
 n_classes = len(np.unique(y))
 print(f"\nTarget '{target}' has {n_classes} classes after merging and encoding")
 print("Class distribution:", Counter(y))
 
-# 划分训练测试集
+print(f"\nTarget variable '{target}' distribution:\n{y.value_counts(normalize=True)}")
+
+# 模型训练 --------------------------------------------------------
+print("\n=== 模型训练 ===")
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, stratify=y, random_state=42
+    X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-print(f"\nTrain set size: {len(X_train)}, Test set size: {len(X_test)}")
-print("Train set distribution:", Counter(y_train))
-print("Test set distribution:", Counter(y_test))
+print("\n=== 数据类型检查 ===")
+print("训练集数据类型分布:")
+print(X_train.dtypes.value_counts())
 
-# 标准化
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+non_numeric_cols = X_train.select_dtypes(include=['object', 'category']).columns
+if not non_numeric_cols.empty:
+    print(f"\n发现非数值列: {list(non_numeric_cols)}")
+    X_train = pd.get_dummies(X_train, columns=non_numeric_cols, drop_first=True)
+    X_test = pd.get_dummies(X_test, columns=non_numeric_cols, drop_first=True)
+    print(f"独热编码后特征数: {X_train.shape[1]}")
 
 # # 计算类别权重
 class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
@@ -344,7 +226,7 @@ oversampler = ADASYN(
     random_state=42
 )
 
-X_train_res, y_train_res = oversampler.fit_resample(X_train_scaled, y_train)
+X_train_res, y_train_res = oversampler.fit_resample(X_train, y_train)
 print("After ADASYN - Train set distribution:", Counter(y_train_res))
 
 # 计算样本权重
@@ -485,7 +367,7 @@ results = {}
 for name, model in models.items():
     print(f"\nEvaluating {name}...")
     start_time = time.time()
-    y_pred = evaluate_model(model, X_test_scaled, y_test, name)
+    y_pred = evaluate_model(model, X_test, y_test, name)
     eval_time = time.time() - start_time
     
     # 收集评估指标
@@ -540,7 +422,7 @@ fusion_models = {k: v for k, v in models.items() if k != 'Stacking'}
 fusion_weights = weights[:len(fusion_models)]
 
 # 评估融合模型
-y_pred_fused = weighted_ensemble_predict(fusion_models, fusion_weights, X_test_scaled)
+y_pred_fused = weighted_ensemble_predict(fusion_models, fusion_weights, X_test)
 
 # 评估融合模型性能
 print("\nFused Model Evaluation:")
@@ -590,14 +472,14 @@ if best_model_name != 'Weighted Fusion' and hasattr(best_model, 'predict_proba')
         explainer = shap.TreeExplainer(best_model)
         
         # 计算SHAP值
-        shap_values = explainer.shap_values(X_test_scaled)
-        
+        shap_values = explainer.shap_values(X_test)
+
         # 分析类别0的预测
         plt.figure(figsize=(12, 8))
         shap.summary_plot(
             shap_values[0], 
-            X_test_scaled, 
-            feature_names=consensus_features,
+            X_test, 
+            feature_names=X_test.columns,
             plot_type='dot',
             show=False
         )
@@ -614,8 +496,8 @@ if best_model_name != 'Weighted Fusion' and hasattr(best_model, 'predict_proba')
             shap.force_plot(
                 explainer.expected_value[0], 
                 shap_values[0][sample_idx], 
-                X_test_scaled[sample_idx],
-                feature_names=consensus_features,
+                X_test[sample_idx],
+                feature_names=X_test.columns,
                 show=False
             )
             plt.title(f'SHAP Explanation for Sample {sample_idx} (Class 0)')
