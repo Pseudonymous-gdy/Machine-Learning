@@ -173,10 +173,10 @@ def plot_pr_curves(model, X_test, y_test, model_name, model_dir):
         print(f"Could not plot PR curves for {model_name}: {str(e)}")
 
 def optimize_model(model, param_grid, X_train, y_train, cv=3):
-    """使用网格搜索优化模型超参数"""
+    """使用网格搜索优化模型超参数，并稳健绘制超参数曲线"""
     print(f"\nOptimizing {model.__class__.__name__}...")
     start_time = time.time()
-    
+
     grid_search = GridSearchCV(
         estimator=model,
         param_grid=param_grid,
@@ -185,70 +185,148 @@ def optimize_model(model, param_grid, X_train, y_train, cv=3):
         n_jobs=-1,
         verbose=1
     )
-    
+
     grid_search.fit(X_train, y_train)
-    
+
     end_time = time.time()
     print(f"Optimization completed in {end_time - start_time:.2f} seconds")
     print(f"Best parameters: {grid_search.best_params_}")
     print(f"Best F1 score: {grid_search.best_score_:.4f}")
-    
-    # 保存超参数调节曲线
+
+    # 保存超参数调节曲线（健壮版）
     if hasattr(grid_search, 'cv_results_'):
         cv_results = pd.DataFrame(grid_search.cv_results_)
-        
-        # 提取重要参数和得分
-        param_cols = [col for col in cv_results.columns if col.startswith('param_')]
-        plot_data = cv_results[param_cols + ['mean_test_score']]
-        
+
+        # 提取参数列
+        param_cols = [c for c in cv_results.columns if c.startswith('param_')]
+        plot_data = cv_results[param_cols + ['mean_test_score']].copy()
+
+        # 将不可哈希类型转为字符串
+        for col in param_cols:
+            plot_data[col] = plot_data[col].astype(str)
+
         # 创建目录
         model_name = model.__class__.__name__
         model_dir = f"model_visualizations/{model_name.replace(' ', '_')}"
         os.makedirs(model_dir, exist_ok=True)
-        
-        # 绘制不同参数组合的得分
-        plt.figure(figsize=(15, 10))
-        
-        # 创建网格布局
-        gs = GridSpec(2, 2, figure=plt.gcf())
-        
-        # 1. 主要参数与得分
-        if 'n_estimators' in plot_data.columns:
-            ax1 = plt.subplot(gs[0, 0])
-            sns.boxplot(x='param_n_estimators', y='mean_test_score', data=plot_data, ax=ax1)
-            ax1.set_title('Number of Estimators vs F1 Score')
-            ax1.set_xlabel('Number of Estimators')
-            ax1.set_ylabel('Mean F1 Score')
-        
-        # 2. 学习率与得分
-        if 'learning_rate' in plot_data.columns:
-            ax2 = plt.subplot(gs[0, 1])
-            sns.boxplot(x='param_learning_rate', y='mean_test_score', data=plot_data, ax=ax2)
-            ax2.set_title('Learning Rate vs F1 Score')
-            ax2.set_xlabel('Learning Rate')
-            ax2.set_ylabel('Mean F1 Score')
-        
-        # 3. 最大深度与得分
-        if 'max_depth' in plot_data.columns:
-            ax3 = plt.subplot(gs[1, 0])
-            sns.boxplot(x='param_max_depth', y='mean_test_score', data=plot_data, ax=ax3)
-            ax3.set_title('Max Depth vs F1 Score')
-            ax3.set_xlabel('Max Depth')
-            ax3.set_ylabel('Mean F1 Score')
-        
-        # 4. 正则化参数与得分
-        if 'reg_alpha' in plot_data.columns:
-            ax4 = plt.subplot(gs[1, 1])
-            sns.boxplot(x='param_reg_alpha', y='mean_test_score', data=plot_data, ax=ax4)
-            ax4.set_title('Regularization Alpha vs F1 Score')
-            ax4.set_xlabel('Regularization Alpha')
-            ax4.set_ylabel('Mean F1 Score')
-        
+
+        # 绘图参数映射
+        plot_configs = [
+            ('n_estimators', 'Number of Estimators'),
+            ('learning_rate', 'Learning Rate'),
+            ('max_depth', 'Max Depth'),
+            ('reg_alpha', 'Regularization Alpha'),
+        ]
+
+        # 只绘制存在的参数
+        valid_plots = [(key, title) for key, title in plot_configs if f'param_{key}' in plot_data.columns]
+
+        if not valid_plots:
+            print("⚠️ 无可视化参数列，跳过超参数绘图。")
+            return grid_search.best_estimator_
+
+        # 创建子图
+        n_plots = len(valid_plots)
+        fig, axes = plt.subplots(1, n_plots, figsize=(5 * n_plots, 5))
+        if n_plots == 1:
+            axes = [axes]
+
+        for ax, (key, title) in zip(axes, valid_plots):
+            sns.boxplot(
+                x=f'param_{key}',
+                y='mean_test_score',
+                data=plot_data,
+                ax=ax
+            )
+            ax.set_title(f'{title} vs F1 Score')
+            ax.set_xlabel(title)
+            ax.set_ylabel('Mean F1 Score')
+            ax.tick_params(axis='x', rotation=45)
+
         plt.tight_layout()
         plt.savefig(f'{model_dir}/hyperparameter_tuning.png', dpi=300, bbox_inches='tight')
         plt.close()
-    
+        print(f"超参数可视化已保存：{model_dir}/hyperparameter_tuning.png")
+
     return grid_search.best_estimator_
+
+# def optimize_model(model, param_grid, X_train, y_train, cv=3):
+#     """使用网格搜索优化模型超参数"""
+#     print(f"\nOptimizing {model.__class__.__name__}...")
+#     start_time = time.time()
+    
+#     grid_search = GridSearchCV(
+#         estimator=model,
+#         param_grid=param_grid,
+#         scoring='f1_weighted',
+#         cv=StratifiedKFold(n_splits=cv, shuffle=True, random_state=42),
+#         n_jobs=-1,
+#         verbose=1
+#     )
+    
+#     grid_search.fit(X_train, y_train)
+    
+#     end_time = time.time()
+#     print(f"Optimization completed in {end_time - start_time:.2f} seconds")
+#     print(f"Best parameters: {grid_search.best_params_}")
+#     print(f"Best F1 score: {grid_search.best_score_:.4f}")
+    
+#     # 保存超参数调节曲线
+#     if hasattr(grid_search, 'cv_results_'):
+#         cv_results = pd.DataFrame(grid_search.cv_results_)
+        
+#         # 提取重要参数和得分
+#         param_cols = [col for col in cv_results.columns if col.startswith('param_')]
+#         plot_data = cv_results[param_cols + ['mean_test_score']]
+        
+#         # 创建目录
+#         model_name = model.__class__.__name__
+#         model_dir = f"model_visualizations/{model_name.replace(' ', '_')}"
+#         os.makedirs(model_dir, exist_ok=True)
+        
+#         # 绘制不同参数组合的得分
+#         plt.figure(figsize=(15, 10))
+        
+#         # 创建网格布局
+#         gs = GridSpec(2, 2, figure=plt.gcf())
+        
+#         # 1. 主要参数与得分
+#         if 'n_estimators' in plot_data.columns:
+#             ax1 = plt.subplot(gs[0, 0])
+#             sns.boxplot(x='param_n_estimators', y='mean_test_score', data=plot_data, ax=ax1)
+#             ax1.set_title('Number of Estimators vs F1 Score')
+#             ax1.set_xlabel('Number of Estimators')
+#             ax1.set_ylabel('Mean F1 Score')
+        
+#         # 2. 学习率与得分
+#         if 'learning_rate' in plot_data.columns:
+#             ax2 = plt.subplot(gs[0, 1])
+#             sns.boxplot(x='param_learning_rate', y='mean_test_score', data=plot_data, ax=ax2)
+#             ax2.set_title('Learning Rate vs F1 Score')
+#             ax2.set_xlabel('Learning Rate')
+#             ax2.set_ylabel('Mean F1 Score')
+        
+#         # 3. 最大深度与得分
+#         if 'max_depth' in plot_data.columns:
+#             ax3 = plt.subplot(gs[1, 0])
+#             sns.boxplot(x='param_max_depth', y='mean_test_score', data=plot_data, ax=ax3)
+#             ax3.set_title('Max Depth vs F1 Score')
+#             ax3.set_xlabel('Max Depth')
+#             ax3.set_ylabel('Mean F1 Score')
+        
+#         # 4. 正则化参数与得分
+#         if 'reg_alpha' in plot_data.columns:
+#             ax4 = plt.subplot(gs[1, 1])
+#             sns.boxplot(x='param_reg_alpha', y='mean_test_score', data=plot_data, ax=ax4)
+#             ax4.set_title('Regularization Alpha vs F1 Score')
+#             ax4.set_xlabel('Regularization Alpha')
+#             ax4.set_ylabel('Mean F1 Score')
+        
+#         plt.tight_layout()
+#         plt.savefig(f'{model_dir}/hyperparameter_tuning.png', dpi=300, bbox_inches='tight')
+#         plt.close()
+    
+#     return grid_search.best_estimator_
 # def evaluate_model(model, X_test, y_test, model_name):
 #     try:
 #         # 尝试使用预测概率进行阈值调整
@@ -500,7 +578,7 @@ sample_weights = compute_sample_weight('balanced', y_train_res)
 models = {}
 training_times = {}
 
-# Balanced Random Forest
+# Balanced Random Forest----------------------------------------------
 print("\nTraining Balanced Random Forest...")
 start_time = time.time()
 brf = BalancedRandomForestClassifier(
@@ -516,7 +594,7 @@ training_times['Balanced RF'] = time.time() - start_time
 models['Balanced RF'] = brf
 print(f"Balanced RF training completed in {training_times['Balanced RF']:.2f} seconds")
 
-# RUSBoost
+# RUSBoost----------------------------------------------
 print("\nTraining RUSBoost...")
 start_time = time.time()
 rusboost = RUSBoostClassifier(
@@ -532,7 +610,7 @@ training_times['RUSBoost'] = time.time() - start_time
 models['RUSBoost'] = rusboost
 print(f"RUSBoost training completed in {training_times['RUSBoost']:.2f} seconds")
 
-# XGBoost with hyperparameter optimization and class weights
+# XGBoost with hyperparameter optimization and class weights----------------------------------------------
 print("\nOptimizing XGBoost with class weights...")
 start_time = time.time()
 # 计算少数类权重比例
@@ -563,7 +641,7 @@ best_xgb = optimize_model(xgb_model, xgb_param_grid, X_train_res, y_train_res)
 models['Optimized XGBoost'] = best_xgb
 training_times['Optimized XGBoost'] = time.time() - start_time
 
-# Bagging with optimized base estimator
+# Bagging with optimized base estimator----------------------------------------------
 print("\nTraining Bagging Classifier...")
 start_time = time.time()
 bagging = BaggingClassifier(
@@ -584,7 +662,7 @@ training_times['Bagging'] = time.time() - start_time
 models['Bagging'] = bagging
 print(f"Bagging training completed in {training_times['Bagging']:.2f} seconds")
 
-# Gradient Boosting with class weights
+# Gradient Boosting with class weights----------------------------------------------
 print("\nTraining Gradient Boosting...")
 start_time = time.time()
 gb = GradientBoostingClassifier(
@@ -600,7 +678,7 @@ training_times['Gradient Boosting'] = time.time() - start_time
 models['Gradient Boosting'] = gb
 print(f"Gradient Boosting training completed in {training_times['Gradient Boosting']:.2f} seconds")
 
-# Stacking集成 - 使用表现最好的模型作为基学习器
+# Stacking集成 - 使用表现最好的模型作为基学习器----------------------------------------------
 print("\nTraining Stacking Ensemble...")
 start_time = time.time()
 
@@ -728,46 +806,120 @@ best_model_name = comparison.index[0]
 best_model = models.get(best_model_name, None) or fusion_models.get(best_model_name, None)
 print(f"\nBest model identified: {best_model_name} with weighted F1: {comparison.loc[best_model_name, 'f1_weighted']:.4f}")
 
-# 使用SHAP分析最佳模型对类别0的预测
-if best_model_name != 'Weighted Fusion' and hasattr(best_model, 'predict_proba'):
-    print("\nAnalyzing feature impact on minority class using SHAP...")
-    try:
-        # 创建SHAP解释器
-        explainer = shap.TreeExplainer(best_model)
+# # 使用SHAP分析最佳模型对类别0的预测
+# if best_model_name != 'Weighted Fusion' and hasattr(best_model, 'predict_proba'):
+#     print("\nAnalyzing feature impact on minority class using SHAP...")
+#     try:
+#         # 创建SHAP解释器
+#         explainer = shap.TreeExplainer(best_model)
         
-        # 计算SHAP值
-        shap_values = explainer.shap_values(X_test)
+#         # 计算SHAP值
+#         shap_values = explainer.shap_values(X_test)
 
-        # 分析类别0的预测
-        plt.figure(figsize=(12, 8))
-        shap.summary_plot(
-            shap_values[0], 
-            X_test, 
-            feature_names=X_test.columns,
-            plot_type='dot',
-            show=False
-        )
-        plt.title('Feature Impact on Class 0 (Death)')
-        plt.tight_layout()
-        plt.savefig('shap_class0_impact.png', dpi=300)
-        plt.show()
+#         # 分析类别0的预测
+#         plt.figure(figsize=(12, 8))
+#         shap.summary_plot(
+#             shap_values[0], 
+#             X_test, 
+#             feature_names=X_test.columns,
+#             plot_type='dot',
+#             show=False
+#         )
+#         plt.title('Feature Impact on Class 0 (Death)')
+#         plt.tight_layout()
+#         plt.savefig('shap_class0_impact.png', dpi=300)
+#         plt.show()
         
-        # 特定类别0样本的SHAP解释
-        minority_indices = np.where(y_test == 0)[0]
-        if len(minority_indices) > 0:
-            sample_idx = minority_indices[0]
-            plt.figure(figsize=(10, 6))
+#         # 特定类别0样本的SHAP解释
+#         minority_indices = np.where(y_test == 0)[0]
+#         if len(minority_indices) > 0:
+#             sample_idx = minority_indices[0]
+#             plt.figure(figsize=(10, 6))
+#             shap.force_plot(
+#                 explainer.expected_value[0], 
+#                 shap_values[0][sample_idx], 
+#                 X_test[sample_idx],
+#                 feature_names=X_test.columns,
+#                 show=False
+#             )
+#             plt.title(f'SHAP Explanation for Sample {sample_idx} (Class 0)')
+#             plt.tight_layout()
+#             plt.savefig('shap_class0_sample.png', dpi=300)
+#             plt.show()
+            
+#     except Exception as e:
+#         print(f"SHAP analysis failed: {str(e)}")
+
+# SHAP 分析：支持类别 0 和类别 1
+if best_model_name != 'Weighted Fusion' and hasattr(best_model, 'predict_proba'):
+    print("\nAnalyzing feature impact using SHAP...")
+
+    try:
+        # 获取正确特征名
+        try:
+            feature_names = preprocessor.get_feature_names_out()
+        except AttributeError:
+            feature_names = preprocessor.get_feature_names()
+
+        X_test_df = pd.DataFrame(X_test, columns=feature_names)
+
+        explainer = shap.TreeExplainer(best_model)
+        shap_values = explainer.shap_values(X_test_df)
+
+        if isinstance(shap_values, list):
+            shap_class_0 = shap_values[0]
+            shap_class_1 = shap_values[1]
+        else:
+            shap_class_0 = shap_values
+            shap_class_1 = -shap_values
+
+        # 类别 0
+        plt.figure(figsize=(12, 8))
+        shap.summary_plot(shap_class_0, X_test_df, plot_type="dot", show=False)
+        plt.title("SHAP Summary - Class 0 (Death)")
+        plt.tight_layout()
+        plt.savefig("shap_class0_summary.png", dpi=300)
+        plt.show()
+
+        # 类别 1
+        plt.figure(figsize=(12, 8))
+        shap.summary_plot(shap_class_1, X_test_df, plot_type="dot", show=False)
+        plt.title("SHAP Summary - Class 1 (Survive)")
+        plt.tight_layout()
+        plt.savefig("shap_class1_summary.png", dpi=300)
+        plt.show()
+
+        # 单个样本（类别 0）
+        idx_0 = np.where(y_test == 0)[0]
+        if len(idx_0) > 0:
+            i = idx_0[0]
             shap.force_plot(
-                explainer.expected_value[0], 
-                shap_values[0][sample_idx], 
-                X_test[sample_idx],
-                feature_names=X_test.columns,
+                explainer.expected_value[0] if isinstance(explainer.expected_value, np.ndarray) else explainer.expected_value,
+                shap_class_0[i],
+                X_test_df.iloc[i],
+                matplotlib=True,
                 show=False
             )
-            plt.title(f'SHAP Explanation for Sample {sample_idx} (Class 0)')
+            plt.title(f"SHAP Force Plot - Sample {i} (Class 0)")
             plt.tight_layout()
-            plt.savefig('shap_class0_sample.png', dpi=300)
+            plt.savefig(f"shap_class0_sample_{i}.png", dpi=300)
             plt.show()
-            
+
+        # 单个样本（类别 1）
+        idx_1 = np.where(y_test == 1)[0]
+        if len(idx_1) > 0:
+            i = idx_1[0]
+            shap.force_plot(
+                explainer.expected_value[1] if isinstance(explainer.expected_value, np.ndarray) else explainer.expected_value,
+                shap_class_1[i],
+                X_test_df.iloc[i],
+                matplotlib=True,
+                show=False
+            )
+            plt.title(f"SHAP Force Plot - Sample {i} (Class 1)")
+            plt.tight_layout()
+            plt.savefig(f"shap_class1_sample_{i}.png", dpi=300)
+            plt.show()
+
     except Exception as e:
         print(f"SHAP analysis failed: {str(e)}")
