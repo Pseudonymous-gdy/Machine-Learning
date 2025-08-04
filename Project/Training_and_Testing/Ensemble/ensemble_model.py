@@ -1,14 +1,16 @@
+from matplotlib.gridspec import GridSpec
 import numpy as np
 import pandas as pd
 import warnings
 from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, GradientBoostingClassifier, StackingClassifier
+from sklearn.ensemble import BaggingClassifier, GradientBoostingClassifier, StackingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score, precision_recall_curve, auc
 from sklearn.utils.class_weight import compute_class_weight, compute_sample_weight
 from sklearn.feature_selection import mutual_info_classif
+from sklearn.metrics import roc_auc_score, precision_score, recall_score
+import os
 import xgboost as xgb
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -17,6 +19,8 @@ from imblearn.ensemble import BalancedRandomForestClassifier, RUSBoostClassifier
 from collections import Counter
 import time
 import shap  # 添加SHAP库用于模型解释
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
 
 # 配置设置
 warnings.filterwarnings('ignore')
@@ -48,23 +52,100 @@ def evaluate_model(model, X_test, y_test, model_name):
     print("\nClassification report:")
     print(classification_report(y_test, y_pred, digits=3))
     
-    # 绘制混淆矩阵
-    cm = confusion_matrix(y_test, y_pred)
+    # 创建模型专属目录保存所有图表
+    model_dir = f"model_visualizations/{model_name.replace(' ', '_')}"
+    os.makedirs(model_dir, exist_ok=True)
+    
+    # 1. 训练集混淆矩阵
     plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=np.unique(y_test), 
-                yticklabels=np.unique(y_test))
-    plt.title(f'{model_name} Confusion Matrix')
+    cm_train = confusion_matrix(y_train, model.predict(X_train))
+    cm_train_normalized = cm_train.astype('float') / cm_train.sum(axis=1)[:, np.newaxis]
+    sns.heatmap(cm_train_normalized, annot=True, fmt=".2f", cmap='Blues', 
+                xticklabels=np.unique(y_train), 
+                yticklabels=np.unique(y_train))
+    plt.title(f'{model_name} Confusion Matrix (Train Set)')
     plt.ylabel('True Label')
     plt.xlabel('Predicted Label')
-    plt.savefig(f'confusion_matrix_{model_name.replace(" ", "_")}.png', dpi=300)
-    plt.show()
+    plt.savefig(f'{model_dir}/confusion_matrix_train.png', dpi=300, bbox_inches='tight')
+    plt.close()
     
-    # 绘制PR曲线
-    plot_pr_curves(model, X_test, y_test, model_name)
+    # 2. 测试集混淆矩阵
+    plt.figure(figsize=(10, 8))
+    cm_test = confusion_matrix(y_test, y_pred)
+    cm_test_normalized = cm_test.astype('float') / cm_test.sum(axis=1)[:, np.newaxis]
+    sns.heatmap(cm_test_normalized, annot=True, fmt=".2f", cmap='Blues', 
+                xticklabels=np.unique(y_test), 
+                yticklabels=np.unique(y_test))
+    plt.title(f'{model_name} Confusion Matrix (Test Set)')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.savefig(f'{model_dir}/confusion_matrix_test.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 3. 整个数据集混淆矩阵
+    plt.figure(figsize=(10, 8))
+    X_full = preprocessor.transform(X)
+    y_full_pred = model.predict(X_full)
+    cm_full = confusion_matrix(y, y_full_pred)
+    cm_full_normalized = cm_full.astype('float') / cm_full.sum(axis=1)[:, np.newaxis]
+    sns.heatmap(cm_full_normalized, annot=True, fmt=".2f", cmap='Blues', 
+                xticklabels=np.unique(y), 
+                yticklabels=np.unique(y))
+    plt.title(f'{model_name} Confusion Matrix (Full Dataset)')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.savefig(f'{model_dir}/confusion_matrix_full.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 4. PR曲线
+    if hasattr(model, 'predict_proba'):
+        plot_pr_curves(model, X_test, y_test, model_name, model_dir)
+    
+    # 5. 评估指标表格
+    # 计算各项指标
+    train_metrics = {
+        'Dataset': 'Train',
+        'Accuracy': accuracy_score(y_train, model.predict(X_train)),
+        'Precision': precision_score(y_train, model.predict(X_train), average='macro'),
+        'Recall': recall_score(y_train, model.predict(X_train), average='macro'),
+        'F1': f1_score(y_train, model.predict(X_train), average='macro'),
+        'AUC': roc_auc_score(y_train, model.predict_proba(X_train)[:, 1]) if hasattr(model, 'predict_proba') else np.nan
+    }
+
+    test_metrics = {
+        'Dataset': 'Test',
+        'Accuracy': accuracy_score(y_test, y_pred),
+        'Precision': precision_score(y_test, y_pred, average='macro'),
+        'Recall': recall_score(y_test, y_pred, average='macro'),
+        'F1': f1_score(y_test, y_pred, average='macro'),
+        'AUC': roc_auc_score(y_test, model.predict_proba(X_test)[:, 1]) if hasattr(model, 'predict_proba') else np.nan
+    }
+
+    # 创建表格
+    metrics_df = pd.DataFrame([train_metrics, test_metrics])
+    metrics_df = metrics_df.round(4)
+
+    # 保存为CSV
+    metrics_df.to_csv(f'{model_dir}/evaluation_metrics.csv', index=False)
+
+    # 可视化表格
+    plt.figure(figsize=(10, 4))
+    ax = plt.subplot(111, frame_on=False)
+    ax.xaxis.set_visible(False)
+    ax.yaxis.set_visible(False)
+
+    table = pd.plotting.table(ax, metrics_df, loc='center', cellLoc='center')
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 1.2)
+
+    plt.title(f'{model_name} Evaluation Metrics', y=1.1)
+    plt.savefig(f'{model_dir}/evaluation_metrics_table.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
     return y_pred
 
-def plot_pr_curves(model, X_test, y_test, model_name):
+def plot_pr_curves(model, X_test, y_test, model_name, model_dir):
     try:
         y_proba = model.predict_proba(X_test)
         n_classes = len(np.unique(y_test))
@@ -86,10 +167,177 @@ def plot_pr_curves(model, X_test, y_test, model_name):
         plt.title(f'{model_name} Precision-Recall Curve')
         plt.legend(loc='best')
         plt.grid(True)
-        plt.savefig(f'pr_curve_{model_name.replace(" ", "_")}.png', dpi=300)
-        plt.show()
+        plt.savefig(f'{model_dir}/pr_curve.png', dpi=300, bbox_inches='tight')
+        plt.close()
     except Exception as e:
         print(f"Could not plot PR curves for {model_name}: {str(e)}")
+
+def optimize_model(model, param_grid, X_train, y_train, cv=3):
+    """使用网格搜索优化模型超参数"""
+    print(f"\nOptimizing {model.__class__.__name__}...")
+    start_time = time.time()
+    
+    grid_search = GridSearchCV(
+        estimator=model,
+        param_grid=param_grid,
+        scoring='f1_weighted',
+        cv=StratifiedKFold(n_splits=cv, shuffle=True, random_state=42),
+        n_jobs=-1,
+        verbose=1
+    )
+    
+    grid_search.fit(X_train, y_train)
+    
+    end_time = time.time()
+    print(f"Optimization completed in {end_time - start_time:.2f} seconds")
+    print(f"Best parameters: {grid_search.best_params_}")
+    print(f"Best F1 score: {grid_search.best_score_:.4f}")
+    
+    # 保存超参数调节曲线
+    if hasattr(grid_search, 'cv_results_'):
+        cv_results = pd.DataFrame(grid_search.cv_results_)
+        
+        # 提取重要参数和得分
+        param_cols = [col for col in cv_results.columns if col.startswith('param_')]
+        plot_data = cv_results[param_cols + ['mean_test_score']]
+        
+        # 创建目录
+        model_name = model.__class__.__name__
+        model_dir = f"model_visualizations/{model_name.replace(' ', '_')}"
+        os.makedirs(model_dir, exist_ok=True)
+        
+        # 绘制不同参数组合的得分
+        plt.figure(figsize=(15, 10))
+        
+        # 创建网格布局
+        gs = GridSpec(2, 2, figure=plt.gcf())
+        
+        # 1. 主要参数与得分
+        if 'n_estimators' in plot_data.columns:
+            ax1 = plt.subplot(gs[0, 0])
+            sns.boxplot(x='param_n_estimators', y='mean_test_score', data=plot_data, ax=ax1)
+            ax1.set_title('Number of Estimators vs F1 Score')
+            ax1.set_xlabel('Number of Estimators')
+            ax1.set_ylabel('Mean F1 Score')
+        
+        # 2. 学习率与得分
+        if 'learning_rate' in plot_data.columns:
+            ax2 = plt.subplot(gs[0, 1])
+            sns.boxplot(x='param_learning_rate', y='mean_test_score', data=plot_data, ax=ax2)
+            ax2.set_title('Learning Rate vs F1 Score')
+            ax2.set_xlabel('Learning Rate')
+            ax2.set_ylabel('Mean F1 Score')
+        
+        # 3. 最大深度与得分
+        if 'max_depth' in plot_data.columns:
+            ax3 = plt.subplot(gs[1, 0])
+            sns.boxplot(x='param_max_depth', y='mean_test_score', data=plot_data, ax=ax3)
+            ax3.set_title('Max Depth vs F1 Score')
+            ax3.set_xlabel('Max Depth')
+            ax3.set_ylabel('Mean F1 Score')
+        
+        # 4. 正则化参数与得分
+        if 'reg_alpha' in plot_data.columns:
+            ax4 = plt.subplot(gs[1, 1])
+            sns.boxplot(x='param_reg_alpha', y='mean_test_score', data=plot_data, ax=ax4)
+            ax4.set_title('Regularization Alpha vs F1 Score')
+            ax4.set_xlabel('Regularization Alpha')
+            ax4.set_ylabel('Mean F1 Score')
+        
+        plt.tight_layout()
+        plt.savefig(f'{model_dir}/hyperparameter_tuning.png', dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    return grid_search.best_estimator_
+# def evaluate_model(model, X_test, y_test, model_name):
+#     try:
+#         # 尝试使用预测概率进行阈值调整
+#         y_proba = model.predict_proba(X_test)
+#         y_pred = adjust_threshold(y_proba, y_test)  # 修改为传入真实标签用于识别少数类
+#     except:
+#         # 如果模型不支持概率预测，使用默认预测
+#         y_pred = model.predict(X_test)
+    
+#     print(f"\n{'='*50}")
+#     print(f"{model_name} evaluation:")
+#     print('-'*50)
+#     print("accuracy:", accuracy_score(y_test, y_pred))
+#     print("Weighted F1 score:", f1_score(y_test, y_pred, average='weighted'))
+#     print("Macro average F1 score:", f1_score(y_test, y_pred, average='macro'))
+    
+#     # 添加少数类F1分数
+#     unique_classes = np.unique(y_test)
+#     for cls in unique_classes:
+#         cls_f1 = f1_score(y_test, y_pred, labels=[cls], average=None)[0]
+#         print(f"Class {cls} F1 score: {cls_f1:.4f}")
+
+#     print("\nClassification report:")
+#     print(classification_report(y_test, y_pred, digits=3))
+    
+#     # 绘制混淆矩阵 on test set
+#     cm = confusion_matrix(y_test, y_pred)
+#     plt.figure(figsize=(10, 8))
+#     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+#                 xticklabels=np.unique(y_test), 
+#                 yticklabels=np.unique(y_test))
+#     plt.title(f'{model_name} Confusion Matrix(Test)')
+#     plt.ylabel('True Label')
+#     plt.xlabel('Predicted Label')
+#     plt.savefig(f'confusion_matrix_{model_name.replace(" ", "_")}_test.png', dpi=300)
+#     plt.show()
+#     #  绘制混淆矩阵 on train set
+#     cm = confusion_matrix(y_train, model.predict(X_train))
+#     plt.figure(figsize=(10, 8))
+#     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+#                 xticklabels=np.unique(y_train), 
+#                 yticklabels=np.unique(y_train))
+#     plt.title(f'{model_name} Confusion Matrix(Train)')
+#     plt.ylabel('True Label')
+#     plt.xlabel('Predicted Label')
+#     plt.savefig(f'confusion_matrix_{model_name.replace(" ", "_")}_train.png', dpi=300)
+#     plt.show()
+#     # 绘制混淆矩阵 on whole dataset
+#     cm = confusion_matrix(y, model.predict(X))
+#     plt.figure(figsize=(10, 8))
+#     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+#                 xticklabels=np.unique(y), 
+#                 yticklabels=np.unique(y))
+#     plt.title(f'{model_name} Confusion Matrix(Whole Dataset)')
+#     plt.ylabel('True Label')
+#     plt.xlabel('Predicted Label')
+#     plt.savefig(f'confusion_matrix_{model_name.replace(" ", "_")}_whole.png', dpi=300)
+#     plt.show()
+    
+#     # 绘制PR曲线
+#     plot_pr_curves(model, X_test, y_test, model_name)
+#     return y_pred
+
+# def plot_pr_curves(model, X_test, y_test, model_name):
+#     try:
+#         y_proba = model.predict_proba(X_test)
+#         n_classes = len(np.unique(y_test))
+        
+#         plt.figure(figsize=(10, 8))
+#         for i in range(n_classes):
+#             # 二值化当前类
+#             y_true_class = (y_test == i).astype(int)
+#             y_score_class = y_proba[:, i]
+            
+#             precision, recall, _ = precision_recall_curve(y_true_class, y_score_class)
+#             pr_auc = auc(recall, precision)
+            
+#             plt.plot(recall, precision, lw=2, 
+#                      label=f'Class {i} (AUC = {pr_auc:.2f})')
+        
+#         plt.xlabel('Recall')
+#         plt.ylabel('Precision')
+#         plt.title(f'{model_name} Precision-Recall Curve')
+#         plt.legend(loc='best')
+#         plt.grid(True)
+#         plt.savefig(f'pr_curve_{model_name.replace(" ", "_")}.png', dpi=300)
+#         plt.show()
+#     except Exception as e:
+#         print(f"Could not plot PR curves for {model_name}: {str(e)}")
 
 def adjust_threshold(y_proba, y_true):
     """根据类别分布调整决策阈值"""
@@ -126,28 +374,28 @@ def adjust_threshold(y_proba, y_true):
     
     return y_pred
 
-def optimize_model(model, param_grid, X_train, y_train, cv=3):
-    """使用网格搜索优化模型超参数"""
-    print(f"\nOptimizing {model.__class__.__name__}...")
-    start_time = time.time()
+# def optimize_model(model, param_grid, X_train, y_train, cv=3):
+#     """使用网格搜索优化模型超参数"""
+#     print(f"\nOptimizing {model.__class__.__name__}...")
+#     start_time = time.time()
     
-    grid_search = GridSearchCV(
-        estimator=model,
-        param_grid=param_grid,
-        scoring='f1_weighted',
-        cv=StratifiedKFold(n_splits=cv, shuffle=True, random_state=42),
-        n_jobs=-1,
-        verbose=1
-    )
+#     grid_search = GridSearchCV(
+#         estimator=model,
+#         param_grid=param_grid,
+#         scoring='f1_weighted',
+#         cv=StratifiedKFold(n_splits=cv, shuffle=True, random_state=42),
+#         n_jobs=-1,
+#         verbose=1
+#     )
     
-    grid_search.fit(X_train, y_train)
+#     grid_search.fit(X_train, y_train)
     
-    end_time = time.time()
-    print(f"Optimization completed in {end_time - start_time:.2f} seconds")
-    print(f"Best parameters: {grid_search.best_params_}")
-    print(f"Best F1 score: {grid_search.best_score_:.4f}")
+#     end_time = time.time()
+#     print(f"Optimization completed in {end_time - start_time:.2f} seconds")
+#     print(f"Best parameters: {grid_search.best_params_}")
+#     print(f"Best F1 score: {grid_search.best_score_:.4f}")
     
-    return grid_search.best_estimator_
+#     return grid_search.best_estimator_
 
 def weighted_ensemble_predict(models, weights, X):
     """加权融合多个模型的预测概率"""
@@ -199,20 +447,36 @@ print(f"\nTarget variable '{target}' distribution:\n{y.value_counts(normalize=Tr
 
 # 模型训练 --------------------------------------------------------
 print("\n=== 模型训练 ===")
+# X_train, X_test, y_train, y_test = train_test_split(
+#     X, y, test_size=0.2, random_state=42, stratify=y
+# )
+
+# print("\n=== 数据类型检查 ===")
+# print("训练集数据类型分布:")
+# print(X_train.dtypes.value_counts())
+
+# non_numeric_cols = X_train.select_dtypes(include=['object', 'category']).columns
+# if not non_numeric_cols.empty:
+#     print(f"\n发现非数值列: {list(non_numeric_cols)}")
+#     X_train = pd.get_dummies(X_train, columns=non_numeric_cols, drop_first=True)
+#     X_test = pd.get_dummies(X_test, columns=non_numeric_cols, drop_first=True)
+#     print(f"独热编码后特征数: {X_train.shape[1]}")
+non_numeric_cols = X.select_dtypes(include=['object', 'category']).columns
+numeric_cols = X.select_dtypes(include=['int64', 'float64']).columns
+# 创建列转换器
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', 'passthrough', numeric_cols),
+        ('cat', OneHotEncoder(drop='first'), non_numeric_cols)
+    ])
+preprocessor.fit(X)
+# 然后拆分数据集
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
-
-print("\n=== 数据类型检查 ===")
-print("训练集数据类型分布:")
-print(X_train.dtypes.value_counts())
-
-non_numeric_cols = X_train.select_dtypes(include=['object', 'category']).columns
-if not non_numeric_cols.empty:
-    print(f"\n发现非数值列: {list(non_numeric_cols)}")
-    X_train = pd.get_dummies(X_train, columns=non_numeric_cols, drop_first=True)
-    X_test = pd.get_dummies(X_test, columns=non_numeric_cols, drop_first=True)
-    print(f"独热编码后特征数: {X_train.shape[1]}")
+# 应用预处理
+X_train = preprocessor.transform(X_train)
+X_test = preprocessor.transform(X_test)
 
 # # 计算类别权重
 class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
