@@ -14,11 +14,10 @@ import os
 import xgboost as xgb
 import matplotlib.pyplot as plt
 import seaborn as sns
-from imblearn.over_sampling import SMOTE, ADASYN, BorderlineSMOTE
+# from imblearn.over_sampling import SMOTE, ADASYN, BorderlineSMOTE
 from imblearn.ensemble import BalancedRandomForestClassifier, RUSBoostClassifier
 from collections import Counter
 import time
-import shap  # 添加SHAP库用于模型解释
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 
@@ -53,7 +52,7 @@ def evaluate_model(model, X_test, y_test, model_name):
     print(classification_report(y_test, y_pred, digits=3))
     
     # 创建模型专属目录保存所有图表
-    model_dir = f"model_visualizations/{model_name.replace(' ', '_')}"
+    model_dir = f"model_visualizations_without_resampling/{model_name.replace(' ', '_')}"
     os.makedirs(model_dir, exist_ok=True)
     
     # 1. 训练集混淆矩阵
@@ -358,18 +357,18 @@ class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y
 class_weight_dict = dict(enumerate(class_weights))
 print(f"Class weights: {class_weight_dict}")
 
-# 使用ADASYN
-oversampler = ADASYN(
-    sampling_strategy='auto',
-    n_neighbors=5,
-    random_state=42
-)
+# # 使用ADASYN
+# oversampler = ADASYN(
+#     sampling_strategy='auto',
+#     n_neighbors=5,
+#     random_state=42
+# )
 
-X_train_res, y_train_res = oversampler.fit_resample(X_train, y_train)
-print("After ADASYN - Train set distribution:", Counter(y_train_res))
+# X_train_res, y_train_res = oversampler.fit_resample(X_train, y_train)
+# print("After ADASYN - Train set distribution:", Counter(y_train_res))
 
 # 计算样本权重
-sample_weights = compute_sample_weight('balanced', y_train_res)
+sample_weights = compute_sample_weight('balanced', y_train)
 
 # 模型集合
 models = {}
@@ -386,7 +385,7 @@ brf = BalancedRandomForestClassifier(
     random_state=42,
     n_jobs=-1
 )
-brf.fit(X_train_res, y_train_res)
+brf.fit(X_train, y_train)
 training_times['Balanced RF'] = time.time() - start_time
 models['Balanced RF'] = brf
 print(f"Balanced RF training completed in {training_times['Balanced RF']:.2f} seconds")
@@ -402,7 +401,7 @@ rusboost = RUSBoostClassifier(
     random_state=42,
     algorithm='SAMME'  # 修复参数错误
 )
-rusboost.fit(X_train_res, y_train_res)
+rusboost.fit(X_train, y_train)
 training_times['RUSBoost'] = time.time() - start_time
 models['RUSBoost'] = rusboost
 print(f"RUSBoost training completed in {training_times['RUSBoost']:.2f} seconds")
@@ -434,7 +433,7 @@ xgb_param_grid = {
 }
 
 # 优化XGBoost
-best_xgb = optimize_model(xgb_model, xgb_param_grid, X_train_res, y_train_res)
+best_xgb = optimize_model(xgb_model, xgb_param_grid, X_train, y_train)
 models['Optimized XGBoost'] = best_xgb
 training_times['Optimized XGBoost'] = time.time() - start_time
 
@@ -454,7 +453,7 @@ bagging = BaggingClassifier(
     random_state=42,
     n_jobs=-1
 )
-bagging.fit(X_train_res, y_train_res)
+bagging.fit(X_train, y_train)
 training_times['Bagging'] = time.time() - start_time
 models['Bagging'] = bagging
 print(f"Bagging training completed in {training_times['Bagging']:.2f} seconds")
@@ -470,7 +469,7 @@ gb = GradientBoostingClassifier(
     subsample=0.8,
     random_state=42
 )
-gb.fit(X_train_res, y_train_res, sample_weight=sample_weights)
+gb.fit(X_train, y_train, sample_weight=sample_weights)
 training_times['Gradient Boosting'] = time.time() - start_time
 models['Gradient Boosting'] = gb
 print(f"Gradient Boosting training completed in {training_times['Gradient Boosting']:.2f} seconds")
@@ -494,7 +493,7 @@ stacker = StackingClassifier(
     n_jobs=-1
 )
 
-stacker.fit(X_train_res, y_train_res)
+stacker.fit(X_train, y_train)
 training_times['Stacking'] = time.time() - start_time
 models['Stacking'] = stacker
 print(f"Stacking training completed in {training_times['Stacking']:.2f} seconds")
@@ -602,39 +601,3 @@ print(comparison)
 best_model_name = comparison.index[0]
 best_model = models.get(best_model_name, None) or fusion_models.get(best_model_name, None)
 print(f"\nBest model identified: {best_model_name} with weighted F1: {comparison.loc[best_model_name, 'f1_weighted']:.4f}")
-
-# ✅ 修复后的 SHAP 分析（适用于非树模型）
-if best_model_name != 'Weighted Fusion' and hasattr(best_model, 'predict_proba'):
-    print("\nAnalyzing feature impact using SHAP...")
-
-    try:
-        # 获取正确特征名
-        try:
-            feature_names = preprocessor.get_feature_names_out()
-        except AttributeError:
-            feature_names = preprocessor.get_feature_names()
-
-        X_test_df = pd.DataFrame(X_test, columns=feature_names)
-
-        # ✅ 使用 KernelExplainer（适用于非树模型）
-        explainer = shap.KernelExplainer(best_model.predict_proba, X_test_df.iloc[:100])
-        shap_values = explainer.shap_values(X_test_df.iloc[:100])  # 加速
-
-        # 类别 0 分析
-        plt.figure(figsize=(12, 8))
-        shap.summary_plot(shap_values[0], X_test_df.iloc[:100], plot_type="dot", show=False)
-        plt.title("SHAP Summary - Class 0 (Death)")
-        plt.tight_layout()
-        plt.savefig("shap_class0_summary.png", dpi=300)
-        plt.show()
-
-        # 类别 1 分析
-        plt.figure(figsize=(12, 8))
-        shap.summary_plot(shap_values[1], X_test_df.iloc[:100], plot_type="dot", show=False)
-        plt.title("SHAP Summary - Class 1 (Survive)")
-        plt.tight_layout()
-        plt.savefig("shap_class1_summary.png", dpi=300)
-        plt.show()
-
-    except Exception as e:
-        print(f"❌ SHAP analysis failed: {str(e)}")

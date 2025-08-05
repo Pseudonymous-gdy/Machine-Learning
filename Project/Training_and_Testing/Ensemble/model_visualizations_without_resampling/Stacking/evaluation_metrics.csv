@@ -1,0 +1,3 @@
+Dataset,Accuracy,Precision,Recall,F1,AUC
+Train,0.8684,0.8531,0.8869,0.8612,0.9595
+Test,0.7719,0.7551,0.7798,0.7595,0.8784

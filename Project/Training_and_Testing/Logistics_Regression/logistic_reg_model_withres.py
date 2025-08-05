@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+# from prometheus_client import Counter
+from collections import Counter
 import seaborn as sns
 import matplotlib.pyplot as plt
 import joblib
@@ -13,6 +15,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 import os
 from matplotlib.gridspec import GridSpec
+from imblearn.over_sampling import SMOTE, ADASYN, BorderlineSMOTE
 
 # 安全读取数据
 try:
@@ -43,9 +46,6 @@ print(f"\nTarget variable '{target}' distribution:\n{y.value_counts(normalize=Tr
 
 # 模型训练 --------------------------------------------------------
 print("\n=== 模型训练 ===")
-# X_train, X_test, y_train, y_test = train_test_split(
-#     X, y, test_size=0.2, random_state=42, stratify=y
-# )
 non_numeric_cols = X.select_dtypes(include=['object', 'category']).columns
 numeric_cols = X.select_dtypes(include=['int64', 'float64']).columns
 # 创建列转换器
@@ -62,6 +62,15 @@ X_train, X_test, y_train, y_test = train_test_split(
 # 应用预处理
 X_train = preprocessor.transform(X_train)
 X_test = preprocessor.transform(X_test)
+# 使用ADASYN
+oversampler = ADASYN(
+    sampling_strategy='auto',
+    n_neighbors=5,
+    random_state=42
+)
+
+X_train_res, y_train_res = oversampler.fit_resample(X_train, y_train)
+print("After ADASYN - Train set distribution:", Counter(y_train_res))
 
 pipeline = Pipeline([
     ('preprocessor', preprocessor),
@@ -93,14 +102,15 @@ param_grid = [
         'clf__penalty': ['l1', 'l2'],
         'clf__C': np.logspace(-3, 2, 6),
         'clf__solver': ['saga'],
-        'clf__class_weight': [class_weights, 'balanced']
+        # 'clf__class_weight': [class_weights, 'balanced']
+        'clf__class_weight': [None, class_weights]
     },
     {
         'clf__penalty': ['elasticnet'],
         'clf__C': np.logspace(-3, 2, 6),
         'clf__solver': ['saga'],
-        # 'clf__class_weight': [None, class_weights],
-        'clf__class_weight': [class_weights, 'balanced'],
+        'clf__class_weight': [None, class_weights],
+        # 'clf__class_weight': [class_weights, 'balanced'],
         'clf__l1_ratio': [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
         # 'clf__l1_ratio': [0.1, 0.3]
     }
@@ -118,7 +128,7 @@ grid_search = GridSearchCV(
     n_jobs=-1,
     verbose=1
 )
-grid_search.fit(X_train, y_train)
+grid_search.fit(X_train_res, y_train_res)
 print("Hyperparameter search completed!")
 
 # 评估最佳模型
@@ -156,7 +166,7 @@ from matplotlib.gridspec import GridSpec
 from sklearn.metrics import precision_recall_curve, auc, f1_score, precision_score, recall_score
 
 # 创建目录保存所有图表
-os.makedirs('model_visualizations', exist_ok=True)
+os.makedirs('model_visualizations_withres', exist_ok=True)
 
 # 1. 训练集混淆矩阵
 plt.figure(figsize=(10, 8))
@@ -167,7 +177,7 @@ sns.heatmap(cm_train_normalized, annot=True, fmt=".2f", cmap='Blues',
 plt.xlabel('Predicted Label')
 plt.ylabel('True Label')
 plt.title('Normalized Confusion Matrix (Train Set)')
-plt.savefig('model_visualizations/confusion_matrix_train.png', dpi=300, bbox_inches='tight')
+plt.savefig('model_visualizations_withres/confusion_matrix_train.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # 2. 测试集混淆矩阵
@@ -179,7 +189,7 @@ sns.heatmap(cm_test_normalized, annot=True, fmt=".2f", cmap='Blues',
 plt.xlabel('Predicted Label')
 plt.ylabel('True Label')
 plt.title('Normalized Confusion Matrix (Test Set)')
-plt.savefig('model_visualizations/confusion_matrix_test.png', dpi=300, bbox_inches='tight')
+plt.savefig('model_visualizations_withres/confusion_matrix_test.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # 3. 整个数据集混淆矩阵
@@ -195,7 +205,7 @@ sns.heatmap(cm_full_normalized, annot=True, fmt=".2f", cmap='Blues',
 plt.xlabel('Predicted Label')
 plt.ylabel('True Label')
 plt.title('Normalized Confusion Matrix (Full Dataset)')
-plt.savefig('model_visualizations/confusion_matrix_full.png', dpi=300, bbox_inches='tight')
+plt.savefig('model_visualizations_withres/confusion_matrix_full.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # 4. ROC曲线和PR曲线
@@ -227,7 +237,7 @@ plt.title('Precision-Recall (PR) Curve')
 plt.legend(loc="upper right")
 
 plt.tight_layout()
-plt.savefig('model_visualizations/roc_pr_curves.png', dpi=300, bbox_inches='tight')
+plt.savefig('model_visualizations_withres/roc_pr_curves.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # 5. 特征重要性
@@ -262,7 +272,7 @@ feature_importance = pd.DataFrame({
 sns.barplot(x='Importance', y='Feature', data=feature_importance.head(15))
 plt.title('Top 15 Feature Importances (Absolute Coefficient Value)')
 plt.xlabel('Absolute Coefficient Value')
-plt.savefig('model_visualizations/feature_importance.png', dpi=300, bbox_inches='tight')
+plt.savefig('model_visualizations_withres/feature_importance.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # 6. 超参数调节曲线
@@ -307,7 +317,7 @@ if hasattr(grid_search, 'cv_results_'):
     ax3.set_ylabel('Mean F1 Score')
 
     plt.tight_layout()
-    plt.savefig('model_visualizations/hyperparameter_tuning.png', dpi=300, bbox_inches='tight')
+    plt.savefig('model_visualizations_withres/hyperparameter_tuning.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 # 7. 评估指标表格
@@ -335,7 +345,7 @@ metrics_df = pd.DataFrame([train_metrics, test_metrics])
 metrics_df = metrics_df.round(4)
 
 # 保存为CSV
-metrics_df.to_csv('model_visualizations/evaluation_metrics.csv', index=False)
+metrics_df.to_csv('model_visualizations_withres/evaluation_metrics.csv', index=False)
 
 # 可视化表格
 plt.figure(figsize=(10, 4))
@@ -349,7 +359,7 @@ table.set_fontsize(10)
 table.scale(1.2, 1.2)
 
 plt.title('Model Evaluation Metrics', y=1.1)
-plt.savefig('model_visualizations/evaluation_metrics_table.png', dpi=300, bbox_inches='tight')
+plt.savefig('model_visualizations_withres/evaluation_metrics_table.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # 保存结果
@@ -357,4 +367,4 @@ joblib.dump(best_model, 'best_logistic_model.pkl')
 feature_importance.to_csv('feature_importance.csv', index=False)
 print("\nModel saved as 'best_logistic_model.pkl'")
 print("Feature importance saved as 'feature_importance.csv'")
-print("All visualizations saved in 'model_visualizations' directory")
+print("All visualizations saved in 'model_visualizations_withres' directory")
