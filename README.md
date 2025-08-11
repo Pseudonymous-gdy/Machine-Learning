@@ -1,6 +1,6 @@
 Welcome to Machine-Learning Respiritories!
 `Table of Contents`:
-- [Course Introduction](### Course Introduction)
+- [Course Introduction](README.md#Course%20Introduction)
 - [Notes Directory]
 - [Project Directory]
 - [Development Plan]
