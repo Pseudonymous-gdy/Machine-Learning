@@ -1,9 +1,9 @@
 Welcome to Machine-Learning Respiritories!
 `Table of Contents`:
-- [[Course Introduction]]
-- [[Notes Directory]]
-- [[Project Directory]]
-- [[Development Plan]]
+- [[#Course Introduction]]
+- [[#Notes Directory]]
+- [[#Project Directory]]
+- [[#Development Plan]]
 
 ---
 
