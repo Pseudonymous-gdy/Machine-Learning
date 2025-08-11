@@ -1,18 +1,20 @@
-# Machine-Learning
+### Course Introduction
+This course is first derived from lectures in **DSAA 2011 Machine Learning**, a foundational class that covers the core algorithms of machine learning. The following sections will provide an introduction to key aspects of the course. Furthermore, we plan to include more about other courses, e.g., Deep Learning, etc.
 
-This course is derived from lectures in `DSAA 2011 Machine Learning`, a fundamental class on machine learning theories. There are certain parts as the introduction to be mentioned in the following.
+### Notes Directory
+The `Notes` directory contains detailed materials that are designed to support your learning journey. Here’s how to make the most of it:
+- **Viewing Notes**: Open the notes in [**Obsidian**](https://obsidian.md/). They are formatted specifically for this platform to provide a visual and structured learning experience.
+- **Mathematical Foundations**: Pay close attention to the mathematical explanations provided. These are crucial for building a strong foundation for more advanced topics.
+- **In-Depth Studies**: If you encounter concepts that are unclear, don’t hesitate to ask questions. The notes include in-depth studies, such as exploring the Generalized Linear Model when learning Logistic Regression, to enhance your understanding.
+- **Feedback**: If you notice any issues or errors, please point them out. Your input is essential for improving the notes.
 
-## Notes
-In the `Notes` directory, you might be expected to:
-- Open it in `Obsidian`, as it is written down in Obsidian to help form a graphic and standardized view.
-- Learn about certain mathematical explanations. This is the foundation of learning further advanced technologies.
-- Question about things you don't understand. Although it is derived from a course, several in-depth studies are also included to have a better understanding, i.e. Generalized Linear Model when understanding Logistic Regression.
-- Point out any problem if exists. This might be the key for this note to develop.
+### Project Directory
+The `Project` directory showcases a comprehensive study conducted by our group on a dataset from the UCI Machine Learning Repository. This section demonstrates how theoretical knowledge is applied in practical data analysis.
 
-## Project
-In the `Project` directory, you might view how our group in this course is conducting a full study on a dataset on uci machine learning.
+### Development Plan
+Our current development plan focuses on the following areas:
+- **Redirecting Notes**: We are working on reorganizing the existing notes to make them more accessible.
+- **Expanding Content**: We plan to refine and expand the notes to cover more algorithms and provide deeper insights.
+- **Project Additions**: We will also be adding more project-related materials and examples to enhance the practical application of the concepts learned.
 
-## Development Plan
-I'm currently taking the summer course on it, followed by a contest after it. Therefore,
-- This directory might have a brief skeleton in August.
-- Further content might be involved in the future, i.e., deep learning.
+---
