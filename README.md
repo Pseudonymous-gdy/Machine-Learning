@@ -2,6 +2,9 @@ Welcome to Machine-Learning Respiritories!
 
 `Table of Contents`:
 - [Course Introduction](#course-introduction)
+- [Notes Directory](#notes-directory)
+- [Project Directory](#project-directory)
+- [Development Plan](#development-plan)
 
 ---
 
