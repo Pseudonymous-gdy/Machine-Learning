@@ -6,7 +6,7 @@ The `Notes` directory contains detailed materials that are designed to support y
 - **Viewing Notes**: Open the notes in [**Obsidian**](https://obsidian.md/). They are formatted specifically for this platform to provide a visual and structured learning experience.
 - **Mathematical Foundations**: Pay close attention to the mathematical explanations provided. These are crucial for building a strong foundation for more advanced topics.
 - **In-Depth Studies**: If you encounter concepts that are unclear, don’t hesitate to ask questions. The notes include in-depth studies, such as exploring the Generalized Linear Model when learning Logistic Regression, to enhance your understanding.
-- **Feedback**: If you notice any issues or errors, please point them out. Your input is essential for improving the notes.
+- **Feedback**: If you notice any issues or errors, please point them out. Your response is essential for improving the notes.
 
 ### Project Directory
 The `Project` directory showcases a comprehensive study conducted by our group on a dataset from the UCI Machine Learning Repository. This section demonstrates how theoretical knowledge is applied in practical data analysis.
