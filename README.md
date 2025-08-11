@@ -28,3 +28,5 @@ Our current development plan focuses on the following areas:
 - **Project Additions**: We will also be adding more project-related materials and examples to enhance the practical application of the concepts learned.
 
 ---
+
+Join the editing through email: dguo294@connect.hkust-gz.edu.cn
