@@ -1,6 +1,7 @@
 Welcome to Machine-Learning Respiritories!
+
 `Table of Contents`:
-[TOC]
+- [Course Introduction](#course-introduction)
 
 ---
 
