@@ -1,3 +1,12 @@
+Welcome to Machine-Learning Respiritories!
+`Table of Contents`:
+- [[Course Introduction]]
+- [[Notes Directory]]
+- [[Project Directory]]
+- [[Development Plan]]
+
+---
+
 ### Course Introduction
 This course is first derived from lectures in **DSAA 2011 Machine Learning**, a foundational class that covers the core algorithms of machine learning. The following sections will provide an introduction to key aspects of the course. Furthermore, we plan to include more about other courses, e.g., Deep Learning, etc.
 
