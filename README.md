@@ -5,7 +5,7 @@ Welcome to Machine-Learning Respiritories!
 - [Notes Directory](#notes-directory)
 - [Project Directory](#project-directory)
 - [Development Plan](#development-plan)
-- [Credits](#Credits)
+- [Credits](#Credits-(to-be-continued))
 
 ---
 
@@ -29,12 +29,14 @@ Our current development plan focuses on the following areas:
 - **Project Additions**: We will also be adding more project-related materials and examples to enhance the practical application of the concepts learned.
 
 ---
-### Credits
-Zhong, Z. (2025). Machine Learning [PowerPoint Slides]. Thrust of Data Science and Analytics, The Hong Kong University of Science and Technology (Guangzhou).
+### Credits (to be continued)
+Koli, S. (2023, February). *Decision Trees: A Complete Introduction With Examples*. Medium. https://medium.com/@MrBam44/decision-trees-91f61a42c724.
+
+Larsen, K. G. (2023, August 13). Machine Learning 41: Support Vector Machines - SMO Algorithm [Video]. YouTube. https://www.youtube.com/watch?v=Mfp7HQKLSAo
 
 Li, J. (2024, November). Decision Tree [PowerPoint Slides]. Thrust of Data Science and Analytics, The Hong Kong University of Science and Technology (Guangzhou).
 
-Koli, S. (2023, February). *Decision Trees: A Complete Introduction With Examples*. Medium. https://medium.com/@MrBam44/decision-trees-91f61a42c724.
+Zhong, Z. (2025). Machine Learning [PowerPoint Slides]. Thrust of Data Science and Analytics, The Hong Kong University of Science and Technology (Guangzhou).
 
 ---
 Join the editing through email: dguo294@connect.hkust-gz.edu.cn
