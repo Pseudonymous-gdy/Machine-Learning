@@ -36,6 +36,8 @@ Larsen, K. G. (2023, August 13). Machine Learning 41: Support Vector Machines - 
 
 Li, J. (2024, November). Decision Tree [PowerPoint Slides]. Thrust of Data Science and Analytics, The Hong Kong University of Science and Technology (Guangzhou).
 
+Wikipedia contributors. (2025, July 9). _Decision tree learning_. Wikipedia. https://en.wikipedia.org/wiki/Decision_tree_learning.
+
 Zhong, Z. (2025). Machine Learning [PowerPoint Slides]. Thrust of Data Science and Analytics, The Hong Kong University of Science and Technology (Guangzhou).
 
 ---
