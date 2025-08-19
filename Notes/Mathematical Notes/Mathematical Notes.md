@@ -1,5 +1,0 @@
-
-[[Kernel Trick]]
-
-[[Gradient Descent]]
-
