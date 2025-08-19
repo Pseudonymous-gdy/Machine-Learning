@@ -6,6 +6,7 @@ Welcome to Machine-Learning Respiritories!
 - [Project Directory](#project-directory)
 - [Development Plan](#development-plan)
 - [Credits](#Credits)
+<img width="865" height="692" alt="image" src="https://github.com/user-attachments/assets/0d9ba0b7-b28a-44d3-b5a1-0cec8015bd7e" />
 
 ---
 
