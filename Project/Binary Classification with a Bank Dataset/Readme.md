@@ -317,4 +317,3 @@ dmesg | grep -i -E 'killed process|oom|Out of memory' -A3
 
 ---
 
-如果你需要我把 README 的中文/英文部分做进一步润色、合并到仓库根 `README.md`，或添加 smoke 脚本（`dev/run_smoke.py`）与一个更详细的资源消耗估算，请告诉我下一步要做的内容。
