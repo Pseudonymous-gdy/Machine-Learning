@@ -23,7 +23,7 @@ from sklearn.metrics import roc_auc_score
 
 # XGBoost model with tuned hyperparameters
 class XGB_Classifier(XGBClassifier):
-    def __init__(self):
+    def __init__(self, **kwargs):
         # Default tuned hyperparameters. Accept kwargs so callers can override any of them.
         def_tree_method = 'gpu_hist' if os.environ.get('XGB_DEVICE', '').lower() == 'gpu' else 'hist'
         # Map a simple `device` option to the appropriate tree_method. Consumers can pass device via kwargs.
@@ -38,14 +38,18 @@ class XGB_Classifier(XGBClassifier):
             tree_method=def_tree_method,
             random_state=42,
         )
-        # Allow any extra kwargs to override defaults
-        try:
-            # If users pass device explicitly, translate it
-            device = defaults.pop('device', None)
-        except Exception:
-            device = None
-        # Call parent initializer with merged params
-        super().__init__(**{**defaults})
+        # Merge defaults with provided kwargs (kwargs take precedence)
+        params = {**defaults, **kwargs}
+
+        # If user passed a 'device' param, map to tree_method where reasonable
+        device = params.pop('device', None)
+        if device is not None:
+            if str(device).lower() == 'cpu':
+                params['tree_method'] = 'hist'
+            elif str(device).lower() == 'gpu':
+                params['tree_method'] = 'gpu_hist'
+
+        super().__init__(**params)
 
 if __name__ == "__main__":
     # If this file is executed directly, run a quick test to verify the model can be trained and evaluated.

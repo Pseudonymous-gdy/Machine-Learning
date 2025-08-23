@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse as sp
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
@@ -20,6 +21,13 @@ class Data_loader():
         self.df = self.df.sample(n=int(len(self.df) * select), random_state=random_state).reset_index(drop=True)
         self.X = self.df.drop(columns=['y'])
         self.y = self.df['y']
+        # placeholders for fitted transformers/selectors for reuse on test data
+        self.oe = None
+        self.ss = None
+        self.selector = None
+        self.selected_features = None
+        self.num_cols = None
+        self.cat_cols = None
 
     def __check__(self):
         '''
@@ -53,7 +61,11 @@ class Data_loader():
         # credit and loan information
         dataframe["credit_info"] = dataframe["default"] + " " + dataframe["housing"] + " " + dataframe["loan"]
         self.df = dataframe.copy()
-        self.X = self.df.drop(columns=['y'])
+        # If 'y' exists (training), drop it for X; otherwise keep all columns for test-time
+        if 'y' in self.df.columns:
+            self.X = self.df.drop(columns=['y'])
+        else:
+            self.X = self.df.copy()
     
     def feature_selection(self):
         '''
@@ -64,39 +76,102 @@ class Data_loader():
         X_num_df = X_df.select_dtypes(include=[np.number])
         X_cat_df = X_df.select_dtypes(exclude=[np.number])
 
-        oe = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
-        X_cat_encoded = oe.fit_transform(X_cat_df)
+        # store numeric / categorical column lists
+        self.num_cols = X_num_df.columns.tolist()
+        self.cat_cols = X_cat_df.columns.tolist()
 
-        ss = StandardScaler()
-        X_num_scaled = ss.fit_transform(X_num_df)
+        # fit encoders/scalers on training data and keep them for later transform
+        self.oe = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+        # ensure 2D for single categorical column
+        if isinstance(X_cat_df, pd.Series):
+            X_cat_df = X_cat_df.to_frame()
+        X_cat_encoded = self.oe.fit_transform(X_cat_df)
+
+        self.ss = StandardScaler()
+        X_num_scaled = self.ss.fit_transform(X_num_df)
 
         X_processed = np.concatenate([X_num_scaled, X_cat_encoded], axis=1)
-        all_features = X_num_df.columns.tolist() + X_cat_df.columns.tolist()
+        all_features = self.num_cols + self.cat_cols
 
         y = data_no_low_importance['y']
 
         # Use a solver that supports 'l1' penalty
-        selector = SelectFromModel(LogisticRegression(penalty="l1", C=.013, solver='liblinear', random_state=42))
-        
-        X_new = selector.fit_transform(X_processed, y)
+        self.selector = SelectFromModel(LogisticRegression(penalty="l1", C=.013, solver='liblinear', random_state=42))
+        X_new = self.selector.fit_transform(X_processed, y)
 
         # To see the selected features
-        selected_features = np.array(all_features)[selector.get_support()]
-        print("Selected features:", selected_features.tolist())
+        selected_features = np.array(all_features)[self.selector.get_support()]
+        self.selected_features = selected_features.tolist()
+        print("Selected features:", self.selected_features)
         print(X_processed.shape, "->", X_new.shape)
-        self.X = self.df[selected_features.tolist()]
+        # set self.X to a dataframe of selected features
+        self.X = self.df[self.selected_features].copy()
 
     def encode_and_scale(self):
-        oe = OneHotEncoder(handle_unknown='ignore')
-        self.X = oe.fit_transform(self.X)
-        ss = StandardScaler(with_mean=False)
-        self.X = ss.fit_transform(self.X)
+        if self.selected_features is None or self.oe is None or self.ss is None or self.selector is None:
+            raise ValueError("feature_selection must be run on training data before calling encode_and_scale on new data")
+
+        # derive numeric and categorical slices from stored column lists
+        X_df = self.df.copy()
+        # if 'y' present, drop it
+        if 'y' in X_df.columns:
+            X_df = X_df.drop(columns=['y'])
+
+        X_num_df = X_df[self.num_cols]
+        X_cat_df = X_df[self.cat_cols]
+
+        # ensure 2D for single-column slices
+        if isinstance(X_cat_df, pd.Series):
+            X_cat_df = X_cat_df.to_frame()
+        if isinstance(X_num_df, pd.Series):
+            X_num_df = X_num_df.to_frame()
+
+        X_cat_encoded = self.oe.transform(X_cat_df)
+        X_num_scaled = self.ss.transform(X_num_df)
+
+        X_processed = np.concatenate([X_num_scaled, X_cat_encoded], axis=1)
+        X_selected = self.selector.transform(X_processed)
+
+        # if selector returns sparse matrix, convert to dense array
+        if hasattr(X_selected, 'toarray'):
+            X_selected = X_selected.toarray()
+
+        # store as DataFrame for downstream code that expects DataFrame-like API
+        self.X = pd.DataFrame(X_selected, columns=self.selected_features)
 
     def splitted_data(self):
+        # Prepare merged columns first
         self.merge_columns()
+
+        # Work on a copy to allow restoring self.df later
+        full_df = self.df.copy()
+
+        if 'y' not in full_df.columns:
+            raise ValueError("Dataframe must contain 'y' column for splitted_data")
+
+        # Split first to avoid leaking test labels into feature selection/encoders
+        train_df, test_df = train_test_split(full_df, test_size=0.015, random_state=42, stratify=full_df['y'])
+
+        # Fit feature selection and encoders on training portion only
+        self.df = train_df.reset_index(drop=True)
         self.feature_selection()
+        # encode_and_scale will populate self.X based on selected_features
         self.encode_and_scale()
-        X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, random_state = 42, stratify=self.y)
+        X_train = self.X
+        y_train = self.df['y']
+
+        # Now transform the test portion using the fitted transformers/selector
+        self.df = test_df.reset_index(drop=True)
+        self.encode_and_scale()
+        X_test = self.X
+        y_test = self.df['y']
+
+        # Restore full dataframe into the loader instance
+        self.df = full_df.reset_index(drop=True)
+        # Also keep X/y consistent with original interface
+        self.X = full_df.drop(columns=['y'])
+        self.y = full_df['y']
+
         return X_train, X_test, y_train, y_test
 
 if __name__ == "__main__":
