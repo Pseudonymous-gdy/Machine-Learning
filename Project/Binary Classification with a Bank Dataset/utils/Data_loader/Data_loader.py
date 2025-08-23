@@ -76,7 +76,7 @@ class Data_loader():
         y = data_no_low_importance['y']
 
         # Use a solver that supports 'l1' penalty
-        selector = SelectFromModel(LogisticRegression(penalty="l1", C=.01, solver='liblinear', random_state=42))
+        selector = SelectFromModel(LogisticRegression(penalty="l1", C=.013, solver='liblinear', random_state=42))
         
         X_new = selector.fit_transform(X_processed, y)
 
@@ -86,18 +86,17 @@ class Data_loader():
         print(X_processed.shape, "->", X_new.shape)
         self.X = self.df[selected_features.tolist()]
 
+    def encode_and_scale(self):
+        oe = OneHotEncoder(handle_unknown='ignore')
+        self.X = oe.fit_transform(self.X)
+        ss = StandardScaler(with_mean=False)
+        self.X = ss.fit_transform(self.X)
+
     def splitted_data(self):
         self.merge_columns()
         self.feature_selection()
+        self.encode_and_scale()
         X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, random_state = 42, stratify=self.y)
-        # Ignore unknown categories during transform to avoid errors when X_test
-        # contains categories not seen in X_train (common in small samples).
-        oe = OneHotEncoder(handle_unknown='ignore')
-        X_train = oe.fit_transform(X_train)
-        X_test = oe.transform(X_test)
-        ss = StandardScaler(with_mean=False)
-        X_train = ss.fit_transform(X_train)
-        X_test = ss.transform(X_test)
         return X_train, X_test, y_train, y_test
 
 if __name__ == "__main__":
