@@ -45,12 +45,12 @@ Then here we get the pseudocode.
 ## Pseudocode
 
 `Algorithm: DBSCAN Algorithm`
-**Require:** Dataset $\mathcal{D}$, radius $\varepsilon$, minimum points *$MinPts$*
+**Require:** Dataset $\mathcal{D}$, radius $\varepsilon$, minimum points $MinPts$
 - Initialize all points as unvisited
 - **for** each unvisited point $p\in\mathcal{D}$ **do**
 	- Mark $p$ as visited
 	- $N\gets\text{getNeighbors}(p,\varepsilon)$                                                                  *# Points within $\varepsilon$ distance*
-	- **if** $|N|<$*$MinPts$* **then**
+	- **if** $|N|<MinPts$ **then**
 		- Label $p$ as noise
 	- **else**
 		- Create new cluster $C=N$
