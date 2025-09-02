@@ -1,0 +1,6 @@
+filters:
+  and:
+    - file.hasTag("DSAA2011")
+views:
+  - type: table
+    name: DSAA 2011 Coverings
